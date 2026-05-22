@@ -83,8 +83,8 @@ Copy `_template/` and follow the steps in
 You can install from a local checkout instead of GitHub:
 
 ```
-/plugin marketplace add /absolute/path/to/my-skills
-/plugin install <skill-name>@my-skills
+/plugin marketplace add /absolute/path/to/skills
+/plugin install <skill-name>@skills
 ```
 
 Then start a fresh Claude Code session and confirm the skill is listed and
@@ -92,6 +92,6 @@ triggers on the phrases described in its `SKILL.md` `description`. After
 editing a skill, remove and re-add the marketplace to pick up changes:
 
 ```
-/plugin marketplace remove my-skills
-/plugin marketplace add /absolute/path/to/my-skills
+/plugin marketplace remove skills
+/plugin marketplace add /absolute/path/to/skills
 ```

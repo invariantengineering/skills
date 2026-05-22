@@ -1,10 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
-  "name": "my-skills",
+  "name": "skills",
   "description": "A monorepo of independently installable Claude Code skills, each packaged as its own plugin.",
   "owner": {
-    "name": "Your Name",
-    "url": "https://github.com/your-username"
+    "name": "Invariant Engineering",
+    "url": "https://github.com/invariantengineering"
   },
   "plugins": [
     {

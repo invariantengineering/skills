@@ -1,4 +1,4 @@
-# my-skills
+# skills
 
 A monorepo of [Claude Code](https://docs.claude.com/en/docs/claude-code) skills.
 Each skill is packaged as its own self-contained plugin, so you can install
@@ -20,13 +20,13 @@ lists every plugin. Each plugin lives in its own subfolder with its own
 First add this marketplace (once):
 
 ```
-/plugin marketplace add your-username/my-skills
+/plugin marketplace add invariantengineering/skills
 ```
 
 Then install any skill by name:
 
 ```
-/plugin install pipe-down@my-skills
+/plugin install pipe-down@skills
 ```
 
 Repeat the `install` step for each skill you want.
@@ -54,4 +54,4 @@ test a skill locally.
 
 ## License
 
-[MIT](LICENSE) © 2026 Your Name
+[MIT](LICENSE) © 2026 Invariant Engineering
