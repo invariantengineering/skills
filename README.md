@@ -13,7 +13,7 @@ lists every plugin. Each plugin lives in its own subfolder with its own
 
 | Skill | Category | Description |
 |-------|----------|-------------|
-| [pipe-down](pipe-down/) | productivity | TODO: one-line description of what the pipe-down skill does. |
+| [pipe-down](pipe-down/) | productivity | Run exactly one shell command per Bash call so commands match Claude Code's permission allowlist and run without re-prompting. |
 
 ## Installing a skill
 

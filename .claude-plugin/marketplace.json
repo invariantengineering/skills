@@ -10,7 +10,7 @@
     {
       "name": "pipe-down",
       "source": "./pipe-down",
-      "description": "TODO: one-line description of what the pipe-down skill does.",
+      "description": "Run exactly one shell command per Bash call so commands match Claude Code's permission allowlist and run without re-prompting.",
       "version": "1.0.0",
       "category": "productivity"
     }
