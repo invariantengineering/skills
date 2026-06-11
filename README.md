@@ -13,6 +13,7 @@ lists every plugin. Each plugin lives in its own subfolder with its own
 
 | Skill | Category | Description |
 |-------|----------|-------------|
+| [commit-and-push](commit-and-push/) | dev-tools | Safely commit a completed logical chunk of work and push it to the remote branch. |
 | [pipe-down](pipe-down/) | productivity | Run exactly one shell command per Bash call so commands match Claude Code's permission allowlist and run without re-prompting. |
 
 ## Installing a skill
