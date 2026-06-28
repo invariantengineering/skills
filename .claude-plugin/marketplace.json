@@ -15,6 +15,13 @@
       "category": "dev-tools"
     },
     {
+      "name": "hitl-pr-review-walkthrough",
+      "source": "./hitl-pr-review-walkthrough",
+      "description": "Create a reviewer walkthrough for human-in-the-loop pull request testing and merge decisions.",
+      "version": "1.0.0",
+      "category": "dev-tools"
+    },
+    {
       "name": "pipe-down",
       "source": "./pipe-down",
       "description": "Run exactly one shell command per Bash call so commands match Claude Code's permission allowlist and run without re-prompting.",

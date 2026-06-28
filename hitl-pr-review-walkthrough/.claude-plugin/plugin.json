@@ -1,0 +1,9 @@
+{
+  "name": "hitl-pr-review-walkthrough",
+  "description": "Create a reviewer walkthrough for human-in-the-loop pull request testing and merge decisions.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Invariant Engineering",
+    "url": "https://github.com/invariantengineering"
+  }
+}
