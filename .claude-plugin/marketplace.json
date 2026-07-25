@@ -15,6 +15,13 @@
       "category": "dev-tools"
     },
     {
+      "name": "durable-worktree-safety",
+      "source": "./durable-worktree-safety",
+      "description": "Keep active Git work durable and pull request branches clean.",
+      "version": "1.0.0",
+      "category": "dev-tools"
+    },
+    {
       "name": "hitl-pr-review-walkthrough",
       "source": "./hitl-pr-review-walkthrough",
       "description": "Create a reviewer walkthrough for human-in-the-loop pull request testing and merge decisions.",
