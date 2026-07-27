@@ -88,3 +88,11 @@ local commit evidence.
 **Report:** State `durability: blocked by remote-mutation restriction`, give the
 local branch and commit, identify anything uncommitted, and do not claim
 durable completion.
+
+## Persistent convention outside writable roots
+
+**Situation:** The usual sibling worktree path is persistent but outside the task's configured writable roots.
+
+**Behavior:** Treat the user's edit permission as clear but separate from sandbox capability. Use an existing ignored `.worktrees/` location inside the authorized repository root, or ask once to add the sibling path as a workspace root. Do not accept repeated per-file approvals or relocate a dirty worktree without exact authorization.
+
+**Report:** Name the selected path, its covering writable root, and any authorized relocation.
