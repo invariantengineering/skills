@@ -5,11 +5,13 @@ description: >
   preparing a pull request for Git work performed in a branch or worktree.
   Also use when a repository is dirty, a feature branch has diverged or contains
   unrelated commits, a worktree is missing or prunable, work lives in an
-  ephemeral directory, a session may end before completion, or the user asks to
-  make active work durable. Establish a persistent worktree, a clean branch from
-  the current remote base, verified commits, remote checkpoints when authorized,
-  clean pull request history, truthful recovery limits, and a mandatory
-  end-of-turn durability gate.
+  ephemeral directory or outside configured writable roots, sandbox approvals
+  repeat for ordinary edits, a worktree may need relocation, a session may end
+  before completion, or the user asks to make active work durable. Establish a
+  persistent and writable worktree, a clean branch from the current remote base,
+  verified commits, remote checkpoints when authorized, clean pull request
+  history, truthful recovery limits, and a mandatory end-of-turn durability
+  gate.
 ---
 
 # Durable Worktree Safety
@@ -23,6 +25,10 @@ intended change.
 - Treat the remote feature branch as the durable backup.
 - Never keep the only copy of active work in `/tmp`, `/private/tmp`, a system
   cache, a transient sandbox, or another cleanup-prone directory.
+- Require the selected worktree path to be covered by the task's configured
+  writable roots so ordinary edits do not require repeated escalation.
+- Treat user authorization, filesystem sandbox capability, and Git or remote
+  mutation authorization as separate facts.
 - Prefer the repository's existing persistent worktree convention. Do not
   invent a competing layout when one is documented or already in use.
 - Start feature work from the fetched remote base, not from a possibly stale
@@ -34,6 +40,8 @@ intended change.
   uncommitted.
 - Never force-push, reset, clean, prune, delete branches or worktrees, rewrite
   history, or discard work without explicit authorization.
+- Never relocate an active or dirty worktree without explicit authorization for
+  the exact source and destination.
 
 ## 1. Establish scope and authority
 
@@ -41,6 +49,10 @@ Determine before mutation:
 
 - intended repository and task;
 - intended base branch and remote;
+- configured workspace and writable roots, when the environment exposes them;
+- whether the intended worktree path is persistent and writable without
+  per-edit escalation;
+- whether the user authorized file edits in that path;
 - whether local branch, commit, and worktree creation are authorized;
 - whether remote branch pushes and pull request mutations are authorized;
 - whether the user permits a remote work-in-progress checkpoint;
@@ -48,6 +60,11 @@ Determine before mutation:
 
 Treat an explicit request to push or open a pull request as remote
 authorization for that scope. Otherwise ask before the first remote mutation.
+Permission to edit files does not change the application's filesystem sandbox
+and does not by itself authorize commits, pushes, or pull request changes.
+Explain any mismatch once and offer a path-level remedy; do not repeatedly ask
+the user to restate permission they already granted.
+
 Fetching reads the remote but updates local remote-tracking refs; perform it
 when network access is allowed. If it cannot be performed, mark the base
 unverified and do not present branch cleanliness as proven.
@@ -100,16 +117,29 @@ Do not add new work to a branch with unrelated ahead history.
 ## 3. Select a persistent worktree
 
 Inspect repository documentation, existing worktree paths, sibling directories,
-ignored worktree directories, and team conventions. Prefer, in order:
+ignored worktree directories, team conventions, and the task's configured
+writable roots. Resolve candidate paths before creation. A candidate is valid
+only when it is both persistent and writable for routine task operations.
 
-1. the documented repository convention;
-2. the convention visible in existing persistent worktrees;
-3. a stable sibling or repository-managed directory on persistent storage,
-   agreed with the user when placement is unclear.
+Prefer, in order:
+
+1. the documented repository convention when a writable root covers it;
+2. the convention visible in existing persistent worktrees when writable;
+3. an existing ignored in-repository worktree directory such as `.worktrees/`
+   inside an authorized repository root;
+4. a stable sibling directory only when the task grants writable access to it;
+5. another persistent location agreed with the user when placement is unclear.
 
 Reject an ephemeral target for active work. A temporary directory may be used
 only for disposable experiments whose valuable output is already committed and
 pushed elsewhere.
+
+Reject a target that would require repeated sandbox escalation for normal file
+edits. If the preferred convention lies outside writable roots, either ask once
+to add or open that path as a workspace root, or select an established
+persistent location inside an existing writable root. State that the user's
+permission is understood and that the remaining constraint is sandbox
+capability.
 
 If the current worktree is dirty:
 
@@ -119,6 +149,26 @@ If the current worktree is dirty:
 - create a separate clean worktree from the remote base for new work;
 - stop before transferring existing changes if their ownership or overlap is
   unclear.
+
+### Relocate an active worktree only as a controlled migration
+
+Do not move a worktree merely to silence repeated approval prompts. First ask
+for authorization naming the exact source and target. Before an authorized
+move:
+
+1. record `git worktree list --porcelain`, branch, `HEAD`, upstream, status,
+   staged paths, and unstaged paths;
+2. create and push a safe checkpoint when authorized;
+3. confirm the destination is persistent, empty, and covered by a writable
+   root;
+4. use `git worktree move <source> <destination>` rather than a raw filesystem
+   move;
+5. re-run the recorded inspections and verify that branch, `HEAD`, index,
+   staged state, unstaged state, and upstream are unchanged.
+
+If no safe checkpoint can be created, preserve the current worktree and ask the
+user to add its existing path as a writable root or explicitly accept the
+remaining approval boundary.
 
 ## 4. Create a clean durable branch
 
@@ -314,6 +364,9 @@ Stop and request direction when:
 
 - the repository, base, remote, branch target, or worktree path is ambiguous;
 - the worktree target may be ephemeral;
+- the worktree target is outside configured writable roots;
+- the proposed remedy would relocate an active or dirty worktree without exact
+  source-and-destination authorization;
 - dirty or staged changes cannot be attributed safely;
 - branch history contains unrelated or uncertain commits;
 - a mutation would overwrite, discard, rewrite, prune, or delete;
@@ -329,6 +382,9 @@ Continue with read-only diagnosis while waiting when it cannot harm evidence.
 Give concise progress updates during work. In the final handoff report:
 
 - repository and persistent worktree path;
+- writable root covering the worktree;
+- worktree capability: `ready` or `approval-bound`, with any remaining sandbox
+  limitation;
 - intended base and fetched base commit;
 - feature branch and upstream;
 - latest local commit and confirmed remote commit;

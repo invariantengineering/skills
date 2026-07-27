@@ -10,6 +10,16 @@ content.
 - [ ] Separate intended work from unrelated user changes.
 - [ ] Leave unrelated user changes untouched and report them.
 
+## Worktree capability
+
+- [ ] Confirm the worktree is persistent and covered by a configured writable
+      root.
+- [ ] Separate file-edit authorization, sandbox capability, local Git mutation
+      authorization, and remote mutation authorization.
+- [ ] Leave no routine edit dependent on repeated per-file escalation.
+- [ ] If the worktree moved, record exact authorization and verify branch,
+      `HEAD`, index, status, and upstream before and after the move.
+
 ## Checkpoint
 
 - [ ] Review the intended diff and staged diff.
@@ -41,5 +51,6 @@ content.
 
 Report `confirmed` only when intended changes are committed, required checks
 have an acceptable result, the remote advertises the latest commit, and pull
-request scope is clean. Otherwise do not claim durable completion. Report the
-blocking evidence and the safest next action.
+request scope is clean. Report unresolved sandbox limitations separately as
+`worktree capability: approval-bound`; do not claim the worktree is ready for
+continued edits. Otherwise report the blocking evidence and safest next action.

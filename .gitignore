@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Persistent linked worktrees
+.worktrees/
+
 # macOS
 .DS_Store
 
