@@ -1,0 +1,4 @@
+interface:
+  display_name: "Timebox Routine Ops"
+  short_description: "Finish routine local operations without process sprawl"
+  default_prompt: "Use $timebox-routine-ops to complete this routine local operation quickly and hand off any blocked remainder."
