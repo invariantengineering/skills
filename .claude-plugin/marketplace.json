@@ -34,6 +34,13 @@
       "description": "Run exactly one shell command per Bash call so commands match Claude Code's permission allowlist and run without re-prompting.",
       "version": "1.0.0",
       "category": "productivity"
+    },
+    {
+      "name": "timebox-routine-ops",
+      "source": "./timebox-routine-ops",
+      "description": "Finish routine local operations quickly without process sprawl.",
+      "version": "1.0.0",
+      "category": "productivity"
     }
   ]
 }

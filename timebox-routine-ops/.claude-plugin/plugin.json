@@ -1,0 +1,9 @@
+{
+  "name": "timebox-routine-ops",
+  "description": "Finish routine local operations quickly without process sprawl.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Invariant Engineering",
+    "url": "https://github.com/invariantengineering"
+  }
+}
