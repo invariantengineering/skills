@@ -29,6 +29,20 @@
       "category": "dev-tools"
     },
     {
+      "name": "impeccable-to-issues",
+      "source": "./impeccable-to-issues",
+      "description": "Draft vertical-slice issue Markdown inside the repository before publishing it.",
+      "version": "1.0.0",
+      "category": "productivity"
+    },
+    {
+      "name": "impeccable-to-prd",
+      "source": "./impeccable-to-prd",
+      "description": "Draft PRD Markdown inside the repository before publishing it.",
+      "version": "1.0.0",
+      "category": "productivity"
+    },
+    {
       "name": "pipe-down",
       "source": "./pipe-down",
       "description": "Run exactly one shell command per Bash call so commands match Claude Code's permission allowlist and run without re-prompting.",

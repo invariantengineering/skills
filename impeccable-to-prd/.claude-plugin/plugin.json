@@ -1,0 +1,9 @@
+{
+  "name": "impeccable-to-prd",
+  "description": "Draft PRD Markdown inside the repository before publishing it.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Invariant Engineering",
+    "url": "https://github.com/invariantengineering"
+  }
+}
