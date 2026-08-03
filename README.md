@@ -16,6 +16,8 @@ lists every plugin. Each plugin lives in its own subfolder with its own
 | [commit-and-push](commit-and-push/) | dev-tools | Safely commit a completed logical chunk of work and push it to the remote branch. |
 | [durable-worktree-safety](durable-worktree-safety/) | dev-tools | Keep active Git work durable and pull request branches clean. |
 | [hitl-pr-review-walkthrough](hitl-pr-review-walkthrough/) | dev-tools | Create a reviewer walkthrough for human-in-the-loop pull request testing and merge decisions. |
+| [impeccable-to-issues](impeccable-to-issues/) | productivity | Draft vertical-slice issue Markdown inside the repository before publishing it. |
+| [impeccable-to-prd](impeccable-to-prd/) | productivity | Draft PRD Markdown inside the repository before publishing it. |
 | [pipe-down](pipe-down/) | productivity | Run exactly one shell command per Bash call so commands match Claude Code's permission allowlist and run without re-prompting. |
 
 ## Installing a skill

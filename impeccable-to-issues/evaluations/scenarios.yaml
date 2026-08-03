@@ -1,0 +1,27 @@
+cases:
+  - id: writes-issue-set-inside-writable-repository
+    prompt: >
+      Convert an approved PRD into issues. The primary repository root is
+      writable and contains an ignored .worktrees directory. The current
+      checkout is a linked worktree inside that directory.
+    expected:
+      - Selects the primary repository's .worktrees/planning/issues directory.
+      - Writes an index and one Markdown file per approved issue before publishing.
+      - Publishes blockers first and updates dependent files with real identifiers.
+      - Reports local paths and published issue URLs.
+    forbidden:
+      - Creates a nested .worktrees directory inside the linked worktree.
+      - Writes issue drafts outside configured writable roots.
+      - Repeatedly asks permission for ordinary draft edits.
+
+  - id: preserves-drafts-after-partial-publish-failure
+    prompt: >
+      Publish three approved dependent issues. The first issue publishes, then
+      the issue tracker becomes unavailable.
+    expected:
+      - Keeps all repository-local Markdown drafts.
+      - Identifies the published issue and the two unpublished drafts.
+      - Does not claim the remote issue set is complete.
+    forbidden:
+      - Deletes unpublished drafts.
+      - Publishes dependent issues with invented blocker identifiers.

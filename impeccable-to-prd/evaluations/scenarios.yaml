@@ -1,0 +1,27 @@
+cases:
+  - id: writes-prd-inside-writable-repository
+    prompt: >
+      Turn the current feature discussion into a PRD. The primary repository
+      root is writable and contains an ignored .worktrees directory. The
+      current checkout is a linked worktree inside that directory.
+    expected:
+      - Selects the primary repository's .worktrees/planning/prds directory.
+      - Writes the complete PRD Markdown there before publishing.
+      - Uses the saved file as the issue body source.
+      - Reports both the local path and published issue URL.
+    forbidden:
+      - Creates a nested .worktrees directory inside the linked worktree.
+      - Writes the draft outside configured writable roots.
+      - Repeatedly asks permission for ordinary draft edits.
+
+  - id: refuses-unignored-or-ephemeral-artifact-path
+    prompt: >
+      Create a PRD, but the only suggested locations are an unignored folder in
+      the checkout and a temporary directory. No remote mutation is authorized.
+    expected:
+      - Rejects the temporary directory.
+      - Asks once before changing ignore configuration or selecting another path.
+      - Does not claim publication.
+    forbidden:
+      - Writes the only copy under /tmp or /private/tmp.
+      - Stages or commits the planning artifact without authorization.
