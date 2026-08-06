@@ -7,11 +7,12 @@ description: >
   unrelated commits, a worktree is missing or prunable, work lives in an
   ephemeral directory or outside configured writable roots, sandbox approvals
   repeat for ordinary edits, a worktree may need relocation, a session may end
-  before completion, or the user asks to make active work durable. Establish a
-  persistent and writable worktree, a clean branch from the current remote base,
-  verified commits, remote checkpoints when authorized, clean pull request
-  history, truthful recovery limits, and a mandatory end-of-turn durability
-  gate.
+  before completion, work is delegated between agents, cleanup may remove local
+  artifacts, or the user asks to make active work durable. Establish a persistent
+  and writable worktree, a clean branch from the current remote base, verified
+  commits, remote checkpoints when authorized, clean pull request history,
+  truthful recovery limits, and mandatory durability gates before handoff,
+  cleanup, and exit.
 ---
 
 # Durable Worktree Safety
@@ -36,6 +37,8 @@ intended change.
 - Preserve unrelated user changes. Never stage, stash, move, overwrite, clean,
   reset, or discard them merely to make the task easier.
 - Refuse to build a pull request from unrelated branch history.
+- Apply the durability gate before every agent handoff and before cleanup, not
+  only before ending a user turn.
 - Never claim completion while intended work remains only local and
   uncommitted.
 - Never force-push, reset, clean, prune, delete branches or worktrees, rewrite
@@ -243,7 +246,54 @@ authorized, make a clearly named checkpoint commit such as
 unrun checks in the draft pull request or handoff. Do not disguise a checkpoint
 as completed work.
 
-## 6. Keep pull request history clean
+Do not delay a checkpoint merely because a broader implementation is not
+finished. A complete, reusable document, design artifact, migration, test
+fixture, or other coherent slice must be committed and pushed before another
+agent receives access to the worktree when remote checkpoint authority exists.
+
+## 6. Enforce the multi-agent handoff and cleanup gate
+
+Before another agent works in or cleans an active worktree:
+
+1. run `git status --short --branch` and classify every modified, staged,
+   deleted, and untracked path;
+2. checkpoint and push every coherent, valuable slice when remote checkpoint
+   authority exists;
+3. if valuable work is incomplete, create and push an explicit checkpoint
+   commit when safe, or prohibit cleanup until the primary agent resumes;
+4. give the receiving agent the branch, worktree, latest durable commit,
+   remaining local paths, permitted mutations, and prohibited cleanup scope.
+
+Before deleting any path described as temporary, generated, cached, or an
+artifact, run:
+
+```text
+git ls-files -- <path>
+git check-ignore -v <path>
+git status --short --untracked-files=all -- <path>
+```
+
+Treat `git check-ignore` exit status 1 as “not ignored,” not as permission to
+delete. A directory name, ignore rule, generated-file convention, or cleanup
+assignment does not prove that all of its contents are disposable.
+
+- Treat a directory containing any tracked file as protected. Never
+  recursively delete or recreate it as cleanup.
+- Do not let a subagent perform cleanup unless the assignment names the exact
+  paths it may remove. General instructions such as “remove artifacts” or
+  “clean temporary files” do not authorize directory deletion.
+- Only the primary agent may remove a directory containing mixed tracked and
+  untracked content, and only after classifying every path and confirming that
+  the remote contains every valuable file.
+- If remote checkpoint authority is absent or a safe checkpoint cannot be
+  created, preserve the worktree and prohibit cleanup. Report which valuable
+  paths remain local.
+
+The primary agent remains responsible for the gate even when another agent
+created the files or performs the cleanup. Delegation does not transfer
+durability responsibility.
+
+## 7. Keep pull request history clean
 
 Immediately before opening or updating a pull request, repeat the fetched-base
 comparison:
@@ -271,11 +321,11 @@ working branch is polluted:
 Do not repair pollution with force-push, reset, rebase, branch deletion, or
 worktree deletion unless the user explicitly requests that exact mutation.
 
-## 7. Enforce the pre-exit gate
+## 8. Enforce the pre-exit gate
 
 Read and apply
 [references/end-of-turn-checklist.md](references/end-of-turn-checklist.md)
-before every turn or session ends.
+before every agent handoff, cleanup operation, and turn or session end.
 
 Always run:
 
@@ -368,6 +418,11 @@ Stop and request direction when:
 - the proposed remedy would relocate an active or dirty worktree without exact
   source-and-destination authorization;
 - dirty or staged changes cannot be attributed safely;
+- a cleanup target has not been classified down to its tracked and untracked
+  contents;
+- a subagent cleanup request names a category or directory instead of exact
+  removable paths;
+- valuable local work lacks a safe durable checkpoint before handoff;
 - branch history contains unrelated or uncertain commits;
 - a mutation would overwrite, discard, rewrite, prune, or delete;
 - a secret or sensitive artifact may be included;

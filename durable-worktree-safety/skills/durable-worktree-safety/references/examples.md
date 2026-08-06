@@ -89,6 +89,34 @@ local commit evidence.
 local branch and commit, identify anything uncommitted, and do not claim
 durable completion.
 
+## Handoff with a complete documentation slice
+
+**Situation:** Implementation is still in progress, but a reusable design
+document is complete. Another agent will inspect or modify the same worktree.
+
+**Behavior:** Treat the document as its own coherent slice. Review it for
+sensitive content, commit it, push it when authorized, and confirm the remote
+hash before the handoff. Give the next agent the durable commit and identify
+all remaining local paths. Do not delay the documentation checkpoint until the
+implementation or independent reviews finish.
+
+**Report:** Document path, checkpoint commit, confirmed remote hash, remaining
+local work, and any prohibited cleanup scope.
+
+## Cleanup of a mixed tracked and untracked directory
+
+**Situation:** A cleanup agent is asked to remove artifacts from a directory
+that contains committed generated files and a valuable untracked document.
+
+**Behavior:** Stop broad cleanup. Run `git ls-files -- <path>`, `git
+check-ignore -v <path>`, and path-scoped status. Treat the directory as
+protected because it contains tracked files. Return control to the primary
+agent unless the assignment identifies exact removable files. The primary
+agent checkpoints the valuable document before authorizing any exact cleanup.
+
+**Report:** Tracked, ignored, and untracked classifications; durable commit for
+valuable content; exact removable paths, if any; and the directory preserved.
+
 ## Persistent convention outside writable roots
 
 **Situation:** The usual sibling worktree path is persistent but outside the task's configured writable roots.

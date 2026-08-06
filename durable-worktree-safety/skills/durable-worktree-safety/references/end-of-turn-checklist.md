@@ -1,7 +1,7 @@
-# End-of-turn durability gate
+# Durability gate
 
-Apply every item before ending a turn that created or changed repository
-content.
+Apply every item before handing an active worktree to another agent, allowing
+cleanup, or ending a turn that created or changed repository content.
 
 ## Repository state
 
@@ -27,9 +27,28 @@ content.
       dumps, generated output, and large unexplained binaries.
 - [ ] Run the relevant checks.
 - [ ] Commit each verified coherent slice.
+- [ ] Commit complete reusable artifacts even when the surrounding
+      implementation remains unfinished.
 - [ ] If valuable work is incomplete, create a clearly named checkpoint only
       when remote work-in-progress is authorized and the content is safe.
 - [ ] Leave no intended change uncommitted before claiming completion.
+
+## Handoff and cleanup
+
+- [ ] Before handoff, record the branch, worktree, latest durable commit,
+      remaining local paths, permitted mutations, and prohibited cleanup scope.
+- [ ] Before deleting a temporary or generated path, run `git ls-files --
+      <path>`, `git check-ignore -v <path>`, and `git status --short
+      --untracked-files=all -- <path>`.
+- [ ] Treat every directory containing tracked files as protected from
+      recursive deletion or recreation.
+- [ ] Give cleanup agents exact removable paths; never delegate broad cleanup
+      categories or directories.
+- [ ] Permit only the primary agent to remove mixed tracked/untracked
+      directories, after every path is classified and every valuable file is
+      confirmed on the remote.
+- [ ] If valuable local work cannot be checkpointed safely, prohibit cleanup
+      until the primary agent resumes.
 
 ## Remote durability
 
@@ -50,7 +69,8 @@ content.
 ## Exit decision
 
 Report `confirmed` only when intended changes are committed, required checks
-have an acceptable result, the remote advertises the latest commit, and pull
-request scope is clean. Report unresolved sandbox limitations separately as
-`worktree capability: approval-bound`; do not claim the worktree is ready for
-continued edits. Otherwise report the blocking evidence and safest next action.
+have an acceptable result, the remote advertises the latest commit, pull
+request scope is clean, and any handoff or cleanup scope is explicit. Report
+unresolved sandbox limitations separately as `worktree capability:
+approval-bound`; do not claim the worktree is ready for continued edits.
+Otherwise report the blocking evidence and safest next action.
