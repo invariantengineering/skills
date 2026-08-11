@@ -1,0 +1,9 @@
+{
+  "name": "estimate-time-and-tokens",
+  "description": "Add elapsed-time and token estimates to every proposed scope of work.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Invariant Engineering",
+    "url": "https://github.com/invariantengineering"
+  }
+}

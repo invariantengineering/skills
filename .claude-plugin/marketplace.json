@@ -22,6 +22,13 @@
       "category": "dev-tools"
     },
     {
+      "name": "estimate-time-and-tokens",
+      "source": "./estimate-time-and-tokens",
+      "description": "Add elapsed-time and token estimates to every proposed scope of work.",
+      "version": "1.0.0",
+      "category": "productivity"
+    },
+    {
       "name": "hitl-pr-review-walkthrough",
       "source": "./hitl-pr-review-walkthrough",
       "description": "Create a reviewer walkthrough for human-in-the-loop pull request testing and merge decisions.",
