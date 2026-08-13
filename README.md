@@ -19,6 +19,7 @@ lists every plugin. Each plugin lives in its own subfolder with its own
 | [hitl-pr-review-walkthrough](hitl-pr-review-walkthrough/) | dev-tools | Create a reviewer walkthrough for human-in-the-loop pull request testing and merge decisions. |
 | [impeccable-to-issues](impeccable-to-issues/) | productivity | Draft vertical-slice issue Markdown inside the repository before publishing it. |
 | [impeccable-to-prd](impeccable-to-prd/) | productivity | Draft PRD Markdown inside the repository before publishing it. |
+| [mvp-scope-guard](mvp-scope-guard/) | productivity | Keep proposed work limited to the smallest verifiable MVP. |
 | [pipe-down](pipe-down/) | productivity | Run exactly one shell command per Bash call so commands match Claude Code's permission allowlist and run without re-prompting. |
 | [timebox-routine-ops](timebox-routine-ops/) | productivity | Finish routine local operations quickly without process sprawl. |
 
