@@ -50,6 +50,13 @@
       "category": "productivity"
     },
     {
+      "name": "mvp-scope-guard",
+      "source": "./mvp-scope-guard",
+      "description": "Keep proposed work limited to the smallest verifiable MVP.",
+      "version": "1.0.0",
+      "category": "productivity"
+    },
+    {
       "name": "pipe-down",
       "source": "./pipe-down",
       "description": "Run exactly one shell command per Bash call so commands match Claude Code's permission allowlist and run without re-prompting.",

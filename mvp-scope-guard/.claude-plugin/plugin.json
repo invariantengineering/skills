@@ -1,0 +1,9 @@
+{
+  "name": "mvp-scope-guard",
+  "description": "Keep proposed work limited to the smallest verifiable MVP.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Invariant Engineering",
+    "url": "https://github.com/invariantengineering"
+  }
+}

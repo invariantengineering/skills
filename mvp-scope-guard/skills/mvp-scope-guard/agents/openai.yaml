@@ -1,0 +1,4 @@
+interface:
+  display_name: "MVP Scope Guard"
+  short_description: "Keep implementation scoped to the MVP"
+  default_prompt: "Use $mvp-scope-guard to reduce this proposal to the smallest verifiable deliverable."
