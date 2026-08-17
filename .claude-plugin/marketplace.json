@@ -24,8 +24,8 @@
     {
       "name": "estimate-time-and-tokens",
       "source": "./estimate-time-and-tokens",
-      "description": "Add elapsed-time and token estimates to every proposed scope of work.",
-      "version": "1.0.0",
+      "description": "Forecast time, tokens, files, and diff size, then calibrate future estimates against completed work.",
+      "version": "1.1.0",
       "category": "productivity"
     },
     {
