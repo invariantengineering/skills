@@ -1,12 +1,27 @@
 ---
 name: mvp-scope-guard
-description: Use before proposing plans, dependencies, frameworks, or multi-ticket implementations to prevent architecture slop, redundant work, and scope beyond the user's stated outcome.
+description: Use when the user authorizes implementing a code, configuration, workflow, infrastructure, or documentation change, or requests an execution-ready implementation plan. Enforce the smallest coherent diff that achieves the explicit request. Do not use for brainstorming, exploration, critique, research, review, explanation, estimation, or discussion before implementation is authorized.
 ---
 
 # MVP Scope Guard
 
 Keep proposed work limited to the smallest verifiable deliverable that achieves
 the user's stated outcome.
+
+## Respect the Execution Boundary
+
+- If the request is exploratory or implementation is not authorized, do not
+  apply this skill and continue without announcing it.
+- Apply the guard silently unless it removes proposed scope or requires user
+  opt-in.
+- Treat the user's rationale as context, not an additional requirement.
+- Before editing, state the requested change and explicit non-goals.
+- Do not implement optional improvements without explicit opt-in.
+- Require confirmation before adding new abstractions, persistent state,
+  subsystems, rollout behavior, rollback behavior, or operational guarantees
+  unless they are indispensable to the requested outcome.
+- Add only the narrowest regression test for the changed behavior.
+- Update documentation only where the requested user-facing behavior changed.
 
 ## Scope the MVP
 
