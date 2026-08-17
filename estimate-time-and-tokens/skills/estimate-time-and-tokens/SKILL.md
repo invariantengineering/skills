@@ -1,48 +1,79 @@
 ---
 name: estimate-time-and-tokens
-description: Use whenever proposing future work, presenting an implementation or remediation plan, offering to make changes, comparing approaches, or asking whether to proceed. Add an honest elapsed-time and token estimate for every proposed scope, including phrases such as "I can implement this," "proposed fix," "next steps," "should I proceed," or "would you like me to."
+description: Use whenever proposing future work, presenting an implementation or remediation plan, offering to make changes, comparing approaches, or asking whether to proceed. Forecast elapsed time, turn-final tokens, files touched, and added/deleted lines, then record outcomes so later estimates calibrate against observed work.
 ---
 
 # Estimate Time and Tokens
 
-Give the user a practical cost signal before they approve or choose proposed work.
+Give the user a concrete cost and code-surface forecast before they approve proposed work. Learn from completed runs instead of repeatedly relying on intuition alone.
 
-## Estimate the complete scope
+## Forecast the complete scope
 
-1. Identify the work being proposed. Include discovery, implementation, validation, review, and handoff when they are part of completing it.
-2. Estimate wall-clock elapsed time for the agent to execute the work in the current environment, not the time a human engineer might bill.
-3. Estimate total model-token use across the proposed work. Treat this as a forecast, not measured usage.
-4. Use rounded ranges. Widen the range when the repository, failure mode, approval path, or test duration is uncertain.
-5. Name the largest assumption or uncertainty only when it could materially change the estimate.
+1. Include discovery, implementation, validation, review, and handoff when they are required for completion.
+2. Estimate agent wall-clock time in the current environment, including likely tool and test latency.
+3. Estimate final-turn `last_token_usage.total_tokens`. Treat it as an operational context-usage measure, not billing data or cumulative session usage. When current session telemetry is available, use its latest value as a lower bound rather than estimating below tokens already observed.
+4. Inspect enough of the repository to name likely files without beginning the implementation.
+5. Separate `expected_files` from less-certain `possible_files`. Use repository-relative paths only.
+6. Estimate additions and deletions as separate rounded ranges. Do not invent a “modified lines” count.
+7. State the largest material uncertainty. Widen ranges when the repository, failure mode, approval path, or validation cost is unclear.
 
-Do not pause solely to gather details needed for a precise estimate. State a conditional estimate from the known scope and identify the assumption that matters.
+Do not pause solely to make the estimate precise. If inspection cannot resolve a path, name the likely directory or mark the file as possible.
 
-## Present estimates at the decision point
+## Record and calibrate the forecast
 
-Place the estimate immediately after the proposed scope and before asking the user to proceed.
+Use the bundled `scripts/calibrate.py` ledger. It stores append-only JSONL under `~/.codex/state/estimate-time-and-tokens/` by default. It records forecast metadata, timestamps, repository-relative paths, Git counts, and token counters. Never add prompts, source contents, tool output, secrets, or absolute repository paths.
 
-Use this compact default:
+Before presenting a forecast, run `forecast`. Use a stable task class such as `bugfix`, `feature`, `refactor`, `docs`, `ops`, or `research`.
 
-> Estimated effort: 20–30 minutes, roughly 8k–12k tokens.
+```text
+python3 <skill-directory>/scripts/calibrate.py forecast --task-class bugfix --time-low 20 --time-high 35 --tokens-low 40000 --tokens-high 70000 --expected-file src/widget.py --possible-file tests/test_widget.py --add-low 25 --add-high 60 --delete-low 5 --delete-high 20
+```
 
-Add one short qualifier when needed:
+Use the returned calibrated ranges in the user-facing estimate and retain the `run_id` for the current task. The token baseline is never lower than the latest observed turn usage and adds 20% headroom when that observation exceeds the submitted range. The command also reconciles any completed prior run whose final token event has become available.
 
-> Estimated effort: 30–50 minutes, roughly 12k–20k tokens. Biggest uncertainty: whether the full integration suite exposes related failures.
+When implementation begins, start the clock from the repository:
 
-For multiple options, give each option its own estimate so the user can compare them. For work with independently useful phases, provide phase estimates and a total only when the breakdown improves the decision.
+```text
+python3 <skill-directory>/scripts/calibrate.py start <run_id> --repo .
+```
 
-## Calibrate honestly
+Pause before waiting on the user, an approval, or an external dependency; resume when active work restarts:
 
-- Prefer ranges over point estimates and rounded values over false precision.
-- Include likely tool latency, test runtime, and review time in the elapsed-time range.
-- Increase both ranges for unfamiliar code, broad search, flaky tests, external approvals, or likely iteration.
-- Decrease both ranges for localized, well-specified, mechanically verifiable changes.
-- Keep time and tokens independently calibrated; a long-running build can consume time without many tokens.
-- Never present an estimate as a guarantee or imply that forecast tokens are measured billing data.
-- Never omit validation merely to make the estimate smaller.
+```text
+python3 <skill-directory>/scripts/calibrate.py pause <run_id>
+python3 <skill-directory>/scripts/calibrate.py resume <run_id>
+```
 
-## Re-estimate when reality changes
+Immediately before the completed handoff, finish the run:
 
-Refresh the estimate when the user changes scope or when inspection reveals a materially different task. Briefly state what changed. Do not repeat unchanged estimates in routine progress updates.
+```text
+python3 <skill-directory>/scripts/calibrate.py finish <run_id> --repo . --outcome completed
+```
 
-Do not add an estimate to a direct answer, completed result, or status report unless it also proposes additional future work.
+Use `blocked` or `abandoned` when appropriate. Those outcomes remain in history but are excluded from calibration. If the repository was dirty when work started, the ledger fails closed for Git scope rather than attributing unrelated changes.
+
+The current turn's final token event is normally written after the response. `finish` therefore marks token usage pending. The next `forecast`, `stats`, or explicit `reconcile` command finds the first `task_complete` after the saved forecast boundary and records the last preceding `last_token_usage` event. Never substitute `total_token_usage`.
+
+If the ledger or session telemetry is unavailable, still give the forecast and say that calibration is unavailable. Do not block useful work on measurement.
+
+## Present the decision point
+
+Use this compact structure:
+
+> Expected files: `src/widget.py`, `tests/test_widget.py`; possible: `src/cache.py`. Estimated diff: +25–60 / −5–20 lines.
+>
+> Estimated effort: 20–35 minutes, roughly 40k–70k tokens. Calibration: 8 comparable runs, medium confidence. Biggest uncertainty: integration-test fallout.
+
+Omit an empty possible-files clause. For multiple options, forecast and record each option separately only if the user is genuinely choosing between them.
+
+## Interpret calibration conservatively
+
+- The ledger keeps the 20 most recent completed observations.
+- It uses task-class observations after five comparable completions; otherwise it falls back to global history.
+- It applies the observed 20th-to-80th-percentile ratio range after five samples. Before that, it reports history but leaves the raw range unchanged.
+- Confidence is low below five samples, medium from five through fourteen, and high at fifteen or more.
+- Time, tokens, file count, and changed lines remain separate signals. A slow build can consume time without many tokens.
+- File and diff factors are supporting evidence, not permission to name files that repository inspection does not support.
+- Re-estimate and create a new forecast when the user changes scope or inspection reveals materially different work. Close the superseded run as `abandoned`.
+
+Do not repeat unchanged estimates in routine updates. Do not add an estimate to a direct answer, completed result, or status report unless it proposes additional future work.

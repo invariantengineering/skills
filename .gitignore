@@ -4,6 +4,9 @@ node_modules/
 # Persistent linked worktrees
 .worktrees/
 
+# Repository-local scratch files
+.scratch/
+
 # macOS
 .DS_Store
 
