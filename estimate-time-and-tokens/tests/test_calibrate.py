@@ -237,6 +237,146 @@ class CalibrationTest(unittest.TestCase):
             900,
         )
 
+    def test_start_rejects_protected_dirty_and_changed_branches(self):
+        args = self.state_args("start-guards")
+        path = calibrate.history_path(args)
+        calibrate.append_event(
+            path,
+            {
+                "event": "forecast",
+                "run_id": "guarded-run",
+                "forecast_at": "2026-01-01T00:00:00Z",
+                "forecast_time_minutes": [10, 20],
+                "forecast_tokens": [10000, 20000],
+                "task_class": "feature",
+                "session_file": None,
+            },
+        )
+        repo = self.root / "guard-repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+        (repo / "tracked.txt").write_text("first\n")
+        subprocess.run(["git", "-C", str(repo), "add", "tracked.txt"], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "initial"], check=True)
+        start_args = argparse.Namespace(
+            state_dir=args.state_dir,
+            run_id="guarded-run",
+            repo=str(repo),
+            allow_dirty=False,
+            allow_protected_branch=False,
+        )
+
+        with self.assertRaisesRegex(calibrate.CalibrationError, "protected branch"):
+            calibrate.command_start(start_args)
+
+        subprocess.run(["git", "-C", str(repo), "switch", "-qc", "feature"], check=True)
+        (repo / "tracked.txt").write_text("dirty\n")
+        with self.assertRaisesRegex(calibrate.CalibrationError, "dirty repository"):
+            calibrate.command_start(start_args)
+
+        subprocess.run(["git", "-C", str(repo), "add", "tracked.txt"], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "clean feature"], check=True)
+        result = calibrate.command_start(start_args)
+        self.assertEqual(result["branch"], "feature")
+
+        subprocess.run(["git", "-C", str(repo), "switch", "-qc", "other-feature"], check=True)
+        finish_args = argparse.Namespace(
+            state_dir=args.state_dir,
+            run_id="guarded-run",
+            repo=str(repo),
+            outcome="completed",
+        )
+        with self.assertRaisesRegex(calibrate.CalibrationError, "branch used at start"):
+            calibrate.command_finish(finish_args)
+
+    def test_invalidation_excludes_a_completed_run(self):
+        args = self.state_args("invalidate")
+        path = calibrate.history_path(args)
+        calibrate.append_event(
+            path,
+            {
+                "event": "forecast",
+                "run_id": "bad-run",
+                "forecast_at": "2026-01-01T00:00:00Z",
+                "forecast_time_minutes": [10, 20],
+                "forecast_tokens": [10000, 20000],
+                "task_class": "feature",
+                "session_file": None,
+            },
+        )
+        calibrate.append_event(
+            path,
+            {
+                "event": "finish",
+                "run_id": "bad-run",
+                "finished_at": "2026-01-01T01:00:00Z",
+                "outcome": "completed",
+                "active_elapsed_seconds": 3600,
+                "actual_files": [],
+                "actual_additions": 0,
+                "actual_deletions": 0,
+            },
+        )
+        calibrate.append_event(
+            path,
+            {
+                "event": "reconcile",
+                "run_id": "bad-run",
+                "reconciled_at": "2026-01-01T01:01:00Z",
+                "token_metric": "last_token_usage",
+                "token_usage": {"total_tokens": 45000},
+            },
+        )
+        invalidate_args = argparse.Namespace(
+            state_dir=args.state_dir,
+            run_id="bad-run",
+            reason="wrong-worktree",
+        )
+
+        result = calibrate.command_invalidate(invalidate_args)
+
+        self.assertEqual(result["status"], "invalidated")
+        self.assertEqual(calibrate.completed_runs(args), [])
+        listed = calibrate.command_runs(argparse.Namespace(state_dir=args.state_dir, limit=20))
+        self.assertEqual(listed["runs"][0]["status"], "invalidated")
+        stats = calibrate.command_stats(argparse.Namespace(state_dir=args.state_dir, task_class="feature"))
+        self.assertEqual(stats["invalidated_runs"], 1)
+        self.assertEqual(stats["completed_runs"], 0)
+
+    def test_unstarted_forecast_can_only_close_without_completion(self):
+        args = self.state_args("unstarted")
+        path = calibrate.history_path(args)
+        calibrate.append_event(
+            path,
+            {
+                "event": "forecast",
+                "run_id": "declined-run",
+                "forecast_at": "2026-01-01T00:00:00Z",
+                "forecast_time_minutes": [10, 20],
+                "forecast_tokens": [10000, 20000],
+                "task_class": "feature",
+                "session_file": None,
+            },
+        )
+        finish_args = argparse.Namespace(
+            state_dir=args.state_dir,
+            run_id="declined-run",
+            repo=".",
+            outcome="completed",
+        )
+        with self.assertRaisesRegex(calibrate.CalibrationError, "must be started"):
+            calibrate.command_finish(finish_args)
+
+        finish_args.outcome = "abandoned"
+        result = calibrate.command_finish(finish_args)
+
+        self.assertEqual(result["outcome"], "abandoned")
+        self.assertEqual(result["active_elapsed_seconds"], 0)
+        listed = calibrate.command_runs(argparse.Namespace(state_dir=args.state_dir, limit=20))
+        self.assertEqual(listed["runs"][0]["status"], "abandoned")
+
     def test_diff_stats_includes_untracked_text(self):
         repo = self.root / "repo"
         repo.mkdir()

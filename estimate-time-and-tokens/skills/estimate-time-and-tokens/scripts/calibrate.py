@@ -18,9 +18,10 @@ from typing import Any, Iterable
 
 
 SCHEMA_VERSION = 1
-ESTIMATOR_VERSION = "1.1.0"
+ESTIMATOR_VERSION = "1.2.0"
 DEFAULT_STATE_DIR = Path.home() / ".codex" / "state" / "estimate-time-and-tokens"
 DEFAULT_SESSIONS_DIR = Path.home() / ".codex" / "sessions"
+PROTECTED_BRANCHES = {"main", "master", "prod", "production", "stage", "staging"}
 
 
 class CalibrationError(RuntimeError):
@@ -90,6 +91,8 @@ def reconstruct(events: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             run["finish"] = event
         elif kind == "reconcile":
             run["reconcile"] = event
+        elif kind == "invalidate":
+            run["invalidate"] = event
     return runs
 
 
@@ -160,7 +163,12 @@ def reconcile_pending(args: argparse.Namespace) -> int:
     reconciled = 0
     for run in runs.values():
         finish = run.get("finish")
-        if not finish or finish.get("outcome") != "completed" or run.get("reconcile"):
+        if (
+            not finish
+            or finish.get("outcome") != "completed"
+            or run.get("reconcile")
+            or run.get("invalidate")
+        ):
             continue
         stored_session = run.get("session_file")
         if not stored_session:
@@ -214,7 +222,7 @@ def completed_runs(args: argparse.Namespace) -> list[dict[str, Any]]:
     completed = [
         run
         for run in runs.values()
-        if run.get("finish", {}).get("outcome") == "completed"
+        if run.get("finish", {}).get("outcome") == "completed" and not run.get("invalidate")
     ]
     return sorted(completed, key=lambda run: run["finish"]["finished_at"])[-20:]
 
@@ -326,6 +334,7 @@ def repo_identity(repo: Path) -> dict[str, Any]:
         "repo_fingerprint": hashlib.sha256(str(root).encode()).hexdigest()[:16],
         "clean": clean,
         "head": git(["rev-parse", "HEAD"], root).strip(),
+        "branch": git(["branch", "--show-current"], root).strip(),
     }
 
 
@@ -368,6 +377,11 @@ def find_run(args: argparse.Namespace) -> dict[str, Any]:
     if not run:
         raise CalibrationError(f"unknown run id: {args.run_id}")
     return run
+
+
+def require_valid_run(run: dict[str, Any]) -> None:
+    if run.get("invalidate"):
+        raise CalibrationError("run is invalidated")
 
 
 def command_forecast(args: argparse.Namespace) -> dict[str, Any]:
@@ -441,15 +455,27 @@ def command_forecast(args: argparse.Namespace) -> dict[str, Any]:
 
 def command_start(args: argparse.Namespace) -> dict[str, Any]:
     run = find_run(args)
+    require_valid_run(run)
     if run.get("start"):
         raise CalibrationError("run already started")
     identity = repo_identity(Path(args.repo).resolve())
+    if identity["branch"] in PROTECTED_BRANCHES and not args.allow_protected_branch:
+        raise CalibrationError(
+            f"refusing to start on protected branch {identity['branch']!r}; "
+            "create or select the implementation worktree first"
+        )
+    if not identity["clean"] and not args.allow_dirty:
+        raise CalibrationError(
+            "refusing to start in a dirty repository; start before edits or use --allow-dirty "
+            "for time/token-only tracking"
+        )
     event = {
         "event": "start",
         "run_id": args.run_id,
         "started_at": utc_now(),
         "repo_name": identity["repo_name"],
         "repo_fingerprint": identity["repo_fingerprint"],
+        "branch": identity["branch"],
         "git_base": identity["head"] if identity["clean"] else None,
         "git_scope_available": identity["clean"],
         "git_scope_reason": None if identity["clean"] else "repository was dirty at start",
@@ -460,6 +486,7 @@ def command_start(args: argparse.Namespace) -> dict[str, Any]:
 
 def command_pause(args: argparse.Namespace) -> dict[str, Any]:
     run = find_run(args)
+    require_valid_run(run)
     if not run.get("start") or run.get("finish"):
         raise CalibrationError("only an active run can be paused")
     event = {"event": "pause", "run_id": args.run_id, "paused_at": utc_now()}
@@ -469,6 +496,7 @@ def command_pause(args: argparse.Namespace) -> dict[str, Any]:
 
 def command_resume(args: argparse.Namespace) -> dict[str, Any]:
     run = find_run(args)
+    require_valid_run(run)
     if not run.get("start") or run.get("finish"):
         raise CalibrationError("only an active run can be resumed")
     event = {"event": "resume", "run_id": args.run_id, "resumed_at": utc_now()}
@@ -478,8 +506,9 @@ def command_resume(args: argparse.Namespace) -> dict[str, Any]:
 
 def command_finish(args: argparse.Namespace) -> dict[str, Any]:
     run = find_run(args)
-    if not run.get("start") or run.get("finish"):
-        raise CalibrationError("run is not active")
+    require_valid_run(run)
+    if run.get("finish"):
+        raise CalibrationError("run is already finished")
     finished_at = utc_now()
     finish: dict[str, Any] = {
         "event": "finish",
@@ -491,11 +520,26 @@ def command_finish(args: argparse.Namespace) -> dict[str, Any]:
         "actual_additions": 0,
         "actual_deletions": 0,
     }
+    if not run.get("start"):
+        if args.outcome == "completed":
+            raise CalibrationError("a completed run must be started before it is finished")
+        append_event(history_path(args), finish)
+        return {
+            "finished_at": finished_at,
+            "outcome": args.outcome,
+            "active_elapsed_seconds": 0,
+            "actual_files": [],
+            "actual_additions": 0,
+            "actual_deletions": 0,
+            "token_reconciliation": "excluded",
+        }
     start = run["start"]
     if start.get("git_scope_available"):
         identity = repo_identity(Path(args.repo).resolve())
         if identity["repo_fingerprint"] != start["repo_fingerprint"]:
             raise CalibrationError("finish must run from the repository used at start")
+        if start.get("branch") and identity["branch"] != start["branch"]:
+            raise CalibrationError("finish must run on the branch used at start")
         finish.update(diff_stats(identity["root"], start["git_base"]))
     append_event(history_path(args), finish)
     return {
@@ -513,8 +557,56 @@ def command_reconcile(args: argparse.Namespace) -> dict[str, Any]:
     return {"reconciled_runs": reconcile_pending(args)}
 
 
+def command_invalidate(args: argparse.Namespace) -> dict[str, Any]:
+    run = find_run(args)
+    if run.get("invalidate"):
+        raise CalibrationError("run is already invalidated")
+    reason = args.reason.strip()
+    if not reason or len(reason) > 200 or "\n" in reason:
+        raise CalibrationError("reason must be a single non-empty line of at most 200 characters")
+    event = {
+        "event": "invalidate",
+        "run_id": args.run_id,
+        "invalidated_at": utc_now(),
+        "reason": reason,
+    }
+    append_event(history_path(args), event)
+    return {"run_id": args.run_id, "status": "invalidated", "reason": reason}
+
+
+def command_runs(args: argparse.Namespace) -> dict[str, Any]:
+    if not 1 <= args.limit <= 100:
+        raise CalibrationError("limit must be between 1 and 100")
+    runs = reconstruct(load_events(history_path(args)))
+    ordered = sorted(runs.values(), key=lambda run: run.get("forecast_at", ""), reverse=True)
+    items = []
+    for run in ordered[: args.limit]:
+        if run.get("invalidate"):
+            status = "invalidated"
+        elif run.get("finish"):
+            status = run["finish"].get("outcome", "finished")
+        elif run.get("start"):
+            status = "active"
+        else:
+            status = "forecast"
+        items.append(
+            {
+                "run_id": run["run_id"],
+                "task_class": run.get("task_class"),
+                "forecast_at": run.get("forecast_at"),
+                "status": status,
+                "branch": run.get("start", {}).get("branch"),
+                "token_usage_reconciled": bool(run.get("reconcile")),
+                "actual_file_count": len(run.get("finish", {}).get("actual_files", [])),
+                "invalidation_reason": run.get("invalidate", {}).get("reason"),
+            }
+        )
+    return {"runs": items}
+
+
 def command_stats(args: argparse.Namespace) -> dict[str, Any]:
     reconciled = reconcile_pending(args)
+    all_runs = reconstruct(load_events(history_path(args)))
     runs = completed_runs(args)
     selected, source = select_runs(runs, args.task_class)
     planned_precision: list[float] = []
@@ -529,6 +621,7 @@ def command_stats(args: argparse.Namespace) -> dict[str, Any]:
             planned_recall.append(overlap / len(actual))
     return {
         "reconciled_runs": reconciled,
+        "invalidated_runs": sum(bool(run.get("invalidate")) for run in all_runs.values()),
         "calibration_source": source,
         "completed_runs": len(selected),
         "time": metric_summary(selected, "time"),
@@ -572,6 +665,8 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("run_id")
         if name == "start":
             command.add_argument("--repo", default=".")
+            command.add_argument("--allow-dirty", action="store_true")
+            command.add_argument("--allow-protected-branch", action="store_true")
         command.set_defaults(handler=handler)
 
     finish = commands.add_parser("finish")
@@ -582,6 +677,15 @@ def parser() -> argparse.ArgumentParser:
 
     reconcile = commands.add_parser("reconcile")
     reconcile.set_defaults(handler=command_reconcile)
+
+    runs = commands.add_parser("runs")
+    runs.add_argument("--limit", type=int, default=20)
+    runs.set_defaults(handler=command_runs)
+
+    invalidate = commands.add_parser("invalidate")
+    invalidate.add_argument("run_id")
+    invalidate.add_argument("--reason", required=True)
+    invalidate.set_defaults(handler=command_invalidate)
 
     stats = commands.add_parser("stats")
     stats.add_argument("--task-class", default="general")
