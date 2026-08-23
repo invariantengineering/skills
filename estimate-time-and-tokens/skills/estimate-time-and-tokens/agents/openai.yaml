@@ -1,4 +1,4 @@
 interface:
   display_name: "Estimate Time and Tokens"
-  short_description: "Calibrate time, token, and code-scope forecasts"
-  default_prompt: "Use $estimate-time-and-tokens to forecast this work and calibrate it against completed runs."
+  short_description: "Control and calibrate delivery forecasts"
+  default_prompt: "Use $estimate-time-and-tokens to forecast this work, checkpoint progress, and reforecast from observed evidence."
