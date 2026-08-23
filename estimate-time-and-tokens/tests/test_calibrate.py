@@ -183,9 +183,11 @@ class CalibrationTest(unittest.TestCase):
         self.assertEqual(result["calibration_source"], "task_class")
         self.assertEqual(result["time_minutes"]["calibrated"], [30, 30])
         self.assertEqual(result["tokens"]["calibrated"], [45000, 45000])
-        self.assertEqual(result["code_scope"]["historical_factors"]["files"]["median_factor"], 2)
+        self.assertEqual(
+            result["code_scope"]["historical_factors"]["files"]["median_factor"], 2
+        )
 
-    def test_forecast_uses_current_turn_tokens_as_a_floor(self):
+    def test_forecast_adds_incremental_tokens_to_current_context(self):
         args = self.state_args("floor")
         sessions = self.root / "sessions"
         sessions.mkdir()
@@ -223,8 +225,265 @@ class CalibrationTest(unittest.TestCase):
             result = calibrate.command_forecast(forecast_args)
 
         self.assertEqual(result["tokens"]["observed_floor"], 120000)
-        self.assertEqual(result["tokens"]["baseline"], [120000, 144000])
-        self.assertEqual(result["tokens"]["calibrated"], [120000, 144000])
+        self.assertEqual(result["tokens"]["incremental"], [20000, 40000])
+        self.assertEqual(result["tokens"]["final_context"], [140000, 160000])
+        self.assertEqual(result["tokens"]["calibrated"], [140000, 160000])
+
+    def test_token_calibration_learns_incremental_work_not_existing_context(self):
+        run = {
+            "submitted_forecast_tokens": [20000, 40000],
+            "forecast_tokens": [120000, 140000],
+            "observed_token_floor": 100000,
+            "reconcile": {"token_usage": {"total_tokens": 160000}},
+        }
+
+        self.assertEqual(calibrate.observations([run], "tokens"), [2.0])
+
+    def test_canary_checkpoint_requires_reforecast_before_completion(self):
+        args = self.state_args("checkpoint")
+        path = calibrate.history_path(args)
+        calibrate.append_event(
+            path,
+            {
+                "event": "forecast",
+                "run_id": "controlled-run",
+                "forecast_at": calibrate.utc_now(),
+                "forecast_time_minutes": [10, 100],
+                "forecast_tokens": [100, 300],
+                "forecast_aggregate_tokens": [200, 600],
+                "work_units": 4,
+                "implementation_agents": 1,
+                "reviewers": 1,
+                "max_correction_passes": 1,
+                "task_class": "feature",
+                "session_file": None,
+            },
+        )
+        calibrate.append_event(
+            path,
+            {
+                "event": "start",
+                "run_id": "controlled-run",
+                "started_at": calibrate.utc_now(),
+                "git_scope_available": False,
+            },
+        )
+        checkpoint_args = argparse.Namespace(
+            state_dir=args.state_dir,
+            run_id="controlled-run",
+            completed_units=1,
+            correction_passes=0,
+            root_tokens=150,
+            aggregate_tokens=250,
+            implementation_agents=1,
+            reviewers=1,
+            trigger=[],
+            reason="first repeated unit complete",
+        )
+
+        checkpoint = calibrate.command_checkpoint(checkpoint_args)
+
+        self.assertEqual(checkpoint["control_action"], "reforecast-required")
+        self.assertIn("canary-checkpoint", checkpoint["triggers"])
+        finish_args = argparse.Namespace(
+            state_dir=args.state_dir,
+            run_id="controlled-run",
+            repo=".",
+            outcome="completed",
+            aggregate_tokens=300,
+        )
+        with self.assertRaisesRegex(calibrate.CalibrationError, "unresolved"):
+            calibrate.command_finish(finish_args)
+
+        reforecast_args = argparse.Namespace(
+            state_dir=args.state_dir,
+            run_id="controlled-run",
+            remaining_time_low=10,
+            remaining_time_high=20,
+            remaining_tokens_low=20,
+            remaining_tokens_high=40,
+            root_tokens=150,
+            aggregate_tokens=250,
+            remaining_aggregate_tokens_low=40,
+            remaining_aggregate_tokens_high=80,
+            work_units=None,
+            implementation_agents=None,
+            reviewers=None,
+            max_correction_passes=None,
+            deviation="canary-variance",
+            reason="canary confirms the remaining rate",
+            approved=False,
+        )
+        reforecast = calibrate.command_reforecast(reforecast_args)
+
+        self.assertEqual(reforecast["control_action"], "continue")
+        self.assertEqual(reforecast["projected_root_tokens"], [170, 190])
+        self.assertEqual(
+            calibrate.current_envelope(calibrate.find_run(reforecast_args))[
+                "root_tokens"
+            ],
+            [170, 190],
+        )
+        finished = calibrate.command_finish(finish_args)
+        self.assertEqual(finished["outcome"], "completed")
+        self.assertEqual(finished["actual_aggregate_tokens"], 300)
+
+    def test_scope_deviation_is_retained_but_excluded_from_calibration(self):
+        args = self.state_args("deviation")
+        path = calibrate.history_path(args)
+        calibrate.append_event(
+            path,
+            {
+                "event": "forecast",
+                "run_id": "expanded-run",
+                "forecast_at": "2026-01-01T00:00:00Z",
+                "forecast_time_minutes": [10, 20],
+                "forecast_tokens": [10000, 20000],
+                "task_class": "feature",
+                "session_file": None,
+            },
+        )
+        calibrate.append_event(
+            path,
+            {
+                "event": "reforecast",
+                "run_id": "expanded-run",
+                "reforecast_at": "2026-01-01T00:10:00Z",
+                "deviation": "workflow-expansion",
+                "approval_state": "approved",
+                "projected_total_time_minutes": [20, 40],
+                "projected_root_tokens": [20000, 40000],
+                "execution_model": {"reviewers": 2},
+            },
+        )
+        calibrate.append_event(
+            path,
+            {
+                "event": "finish",
+                "run_id": "expanded-run",
+                "finished_at": "2026-01-01T00:40:00Z",
+                "outcome": "completed",
+                "active_elapsed_seconds": 2400,
+                "actual_files": [],
+                "actual_additions": 0,
+                "actual_deletions": 0,
+            },
+        )
+
+        self.assertEqual(calibrate.completed_runs(args), [])
+        stats = calibrate.command_stats(
+            argparse.Namespace(state_dir=args.state_dir, task_class="feature")
+        )
+        self.assertEqual(stats["deviation_excluded_runs"], 1)
+
+    def test_correction_cap_cannot_be_cleared_without_approval(self):
+        args = self.state_args("approval")
+        path = calibrate.history_path(args)
+        calibrate.append_event(
+            path,
+            {
+                "event": "forecast",
+                "run_id": "approval-run",
+                "forecast_at": calibrate.utc_now(),
+                "forecast_time_minutes": [10, 100],
+                "forecast_tokens": [100, 500],
+                "work_units": 1,
+                "max_correction_passes": 1,
+                "task_class": "feature",
+                "session_file": None,
+            },
+        )
+        calibrate.append_event(
+            path,
+            {
+                "event": "start",
+                "run_id": "approval-run",
+                "started_at": calibrate.utc_now(),
+                "git_scope_available": False,
+            },
+        )
+        checkpoint_args = argparse.Namespace(
+            state_dir=args.state_dir,
+            run_id="approval-run",
+            completed_units=0,
+            correction_passes=2,
+            root_tokens=120,
+            aggregate_tokens=None,
+            implementation_agents=1,
+            reviewers=0,
+            trigger=[],
+            reason="second correction pass",
+        )
+        self.assertEqual(
+            calibrate.command_checkpoint(checkpoint_args)["control_action"],
+            "approval-required",
+        )
+        reforecast_args = argparse.Namespace(
+            state_dir=args.state_dir,
+            run_id="approval-run",
+            remaining_time_low=5,
+            remaining_time_high=10,
+            remaining_tokens_low=10,
+            remaining_tokens_high=20,
+            root_tokens=120,
+            aggregate_tokens=None,
+            remaining_aggregate_tokens_low=None,
+            remaining_aggregate_tokens_high=None,
+            work_units=None,
+            implementation_agents=None,
+            reviewers=None,
+            max_correction_passes=None,
+            deviation="estimator-error",
+            reason="review requires another correction",
+            approved=False,
+        )
+
+        pending = calibrate.command_reforecast(reforecast_args)
+
+        self.assertTrue(pending["approval_required"])
+        self.assertEqual(pending["control_action"], "stop-for-approval")
+        reforecast_args.approved = True
+        approved = calibrate.command_reforecast(reforecast_args)
+        self.assertEqual(approved["control_action"], "continue")
+
+    def test_required_finding_requires_reforecast(self):
+        args = self.state_args("classify")
+        path = calibrate.history_path(args)
+        calibrate.append_event(
+            path,
+            {
+                "event": "forecast",
+                "run_id": "finding-run",
+                "forecast_at": calibrate.utc_now(),
+                "forecast_time_minutes": [10, 20],
+                "forecast_tokens": [100, 200],
+                "task_class": "bugfix",
+                "session_file": None,
+            },
+        )
+        calibrate.append_event(
+            path,
+            {
+                "event": "start",
+                "run_id": "finding-run",
+                "started_at": calibrate.utc_now(),
+                "git_scope_available": False,
+            },
+        )
+        classify_args = argparse.Namespace(
+            state_dir=args.state_dir,
+            run_id="finding-run",
+            classification="required-now",
+            summary="breaks the accepted contract",
+        )
+
+        result = calibrate.command_classify(classify_args)
+
+        self.assertEqual(result["control_action"], "reforecast-required")
+        self.assertEqual(
+            calibrate.unresolved_control(calibrate.find_run(classify_args)),
+            "reforecast-required",
+        )
 
     def test_active_elapsed_excludes_paused_interval(self):
         events = [
@@ -255,8 +514,13 @@ class CalibrationTest(unittest.TestCase):
         repo = self.root / "guard-repo"
         repo.mkdir()
         subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
-        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
-        subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "test@example.com"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "Test"], check=True
+        )
         (repo / "tracked.txt").write_text("first\n")
         subprocess.run(["git", "-C", str(repo), "add", "tracked.txt"], check=True)
         subprocess.run(["git", "-C", str(repo), "commit", "-qm", "initial"], check=True)
@@ -277,11 +541,15 @@ class CalibrationTest(unittest.TestCase):
             calibrate.command_start(start_args)
 
         subprocess.run(["git", "-C", str(repo), "add", "tracked.txt"], check=True)
-        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "clean feature"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-qm", "clean feature"], check=True
+        )
         result = calibrate.command_start(start_args)
         self.assertEqual(result["branch"], "feature")
 
-        subprocess.run(["git", "-C", str(repo), "switch", "-qc", "other-feature"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "switch", "-qc", "other-feature"], check=True
+        )
         finish_args = argparse.Namespace(
             state_dir=args.state_dir,
             run_id="guarded-run",
@@ -339,9 +607,13 @@ class CalibrationTest(unittest.TestCase):
 
         self.assertEqual(result["status"], "invalidated")
         self.assertEqual(calibrate.completed_runs(args), [])
-        listed = calibrate.command_runs(argparse.Namespace(state_dir=args.state_dir, limit=20))
+        listed = calibrate.command_runs(
+            argparse.Namespace(state_dir=args.state_dir, limit=20)
+        )
         self.assertEqual(listed["runs"][0]["status"], "invalidated")
-        stats = calibrate.command_stats(argparse.Namespace(state_dir=args.state_dir, task_class="feature"))
+        stats = calibrate.command_stats(
+            argparse.Namespace(state_dir=args.state_dir, task_class="feature")
+        )
         self.assertEqual(stats["invalidated_runs"], 1)
         self.assertEqual(stats["completed_runs"], 0)
 
@@ -374,15 +646,22 @@ class CalibrationTest(unittest.TestCase):
 
         self.assertEqual(result["outcome"], "abandoned")
         self.assertEqual(result["active_elapsed_seconds"], 0)
-        listed = calibrate.command_runs(argparse.Namespace(state_dir=args.state_dir, limit=20))
+        listed = calibrate.command_runs(
+            argparse.Namespace(state_dir=args.state_dir, limit=20)
+        )
         self.assertEqual(listed["runs"][0]["status"], "abandoned")
 
     def test_diff_stats_includes_untracked_text(self):
         repo = self.root / "repo"
         repo.mkdir()
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
-        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
-        subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "test@example.com"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "Test"], check=True
+        )
         tracked = repo / "tracked.txt"
         tracked.write_text("first\n")
         subprocess.run(["git", "-C", str(repo), "add", "tracked.txt"], check=True)
