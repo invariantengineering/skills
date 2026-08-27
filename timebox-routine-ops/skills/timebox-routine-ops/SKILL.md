@@ -1,11 +1,19 @@
 ---
 name: timebox-routine-ops
-description: Timebox routine shell, Git, worktree, filesystem, and local administrative operations to prevent process sprawl. Use for Git worktree cleanup, deleting merged local branches, removing stale metadata, simple file or directory cleanup, routine status checks, small permission-sensitive operations, and any task described as basic, quick, mundane, or routine.
+description: Use only for a known, tiny local administrative operation expected to need at most one quick inspection and one direct mutation, such as removing one confirmed artifact or checking one routine status. Do not use for audits, investigations, debugging, implementation, multi-file work, or complex Git and worktree recovery.
 ---
 
 # Timebox Routine Operations
 
 Finish the smallest safely scoped operation quickly. Prefer a precise manual handoff over prolonged autonomous struggle.
+
+## Scope gate
+
+Continue only when the exact target and operation are already known and the
+task should fit within one inspection and one mutation. If the work requires
+discovery, diagnosis, implementation, several files, repeated attempts, or
+complex Git or worktree recovery, stop using this skill and follow the
+task-specific workflow instead.
 
 ## Execution limits
 

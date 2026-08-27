@@ -1,24 +1,25 @@
 ---
 name: durable-worktree-safety
 description: >
-  Use when starting, continuing, checkpointing, handing off, recovering, or
-  preparing a pull request for Git work performed in a branch or worktree.
-  Also use when a repository is dirty, a feature branch has diverged or contains
-  unrelated commits, a worktree is missing or prunable, work lives in an
-  ephemeral directory or outside configured writable roots, sandbox approvals
-  repeat for ordinary edits, a worktree may need relocation, a session may end
-  before completion, work is delegated between agents, cleanup may remove local
-  artifacts, or the user asks to make active work durable. Establish a persistent
-  and writable worktree, a clean branch from the current remote base, verified
-  commits, remote checkpoints when authorized, clean pull request history,
-  truthful recovery limits, and mandatory durability gates before handoff,
-  cleanup, and exit.
+  Use for Git or worktree mutations where branch integrity or durable recovery
+  matters: creating or moving worktrees, dirty or polluted branches, commits,
+  pushes, pull-request preparation, handoffs, destructive cleanup, or recovery.
+  Do not use for read-only repository inspection, code review, explanation,
+  status reporting, or ordinary edits in an already-safe worktree.
 ---
 
 # Durable Worktree Safety
 
 Make active work survive worktree loss and keep pull requests limited to the
 intended change.
+
+## Scope gate
+
+Continue only when the task will mutate Git or worktree state, may strand
+valuable local work, or requires a durable handoff or recovery decision. For a
+read-only check or ordinary editing inside an established clean feature
+worktree, use the repository's normal workflow without loading the remaining
+recovery and durability procedures.
 
 ## Non-negotiable invariants
 
@@ -37,8 +38,8 @@ intended change.
 - Preserve unrelated user changes. Never stage, stash, move, overwrite, clean,
   reset, or discard them merely to make the task easier.
 - Refuse to build a pull request from unrelated branch history.
-- Apply the durability gate before every agent handoff and before cleanup, not
-  only before ending a user turn.
+- After repository content or Git state changes, apply the durability gate
+  before agent handoff, cleanup, or exit.
 - Never claim completion while intended work remains only local and
   uncommitted.
 - Never force-push, reset, clean, prune, delete branches or worktrees, rewrite
@@ -321,13 +322,15 @@ working branch is polluted:
 Do not repair pollution with force-push, reset, rebase, branch deletion, or
 worktree deletion unless the user explicitly requests that exact mutation.
 
-## 8. Enforce the pre-exit gate
+## 8. Enforce the pre-exit gate after changes
 
 Read and apply
 [references/end-of-turn-checklist.md](references/end-of-turn-checklist.md)
-before every agent handoff, cleanup operation, and turn or session end.
+after repository content or Git state changes and before an agent handoff,
+cleanup operation, or turn or session end. A read-only assessment does not
+require the mutation-specific durability checklist.
 
-Always run:
+When repository content or Git state changed, run:
 
 ```text
 git status --short --branch

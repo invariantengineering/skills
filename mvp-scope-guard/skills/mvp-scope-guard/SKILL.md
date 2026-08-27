@@ -8,6 +8,13 @@ description: Use when the user authorizes implementing a code, configuration, wo
 Keep proposed work limited to the smallest verifiable deliverable that achieves
 the user's stated outcome.
 
+## Scope gate
+
+Continue only after the user authorizes implementation or asks for an
+execution-ready implementation plan. Do not apply this skill during
+brainstorming, exploration, research, critique, review, explanation,
+estimation, or other discussion before that boundary is crossed.
+
 ## Respect the Execution Boundary
 
 - If the request is exploratory or implementation is not authorized, do not

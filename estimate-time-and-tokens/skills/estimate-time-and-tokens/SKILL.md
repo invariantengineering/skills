@@ -1,11 +1,19 @@
 ---
 name: estimate-time-and-tokens
-description: Use whenever proposing future work, presenting an implementation or remediation plan, offering to make changes, comparing approaches, or asking whether to proceed. Forecast elapsed time, incremental and final-context tokens, aggregate multi-agent tokens, execution workflow, files touched, and added/deleted lines; then actively reforecast and calibrate against observed work.
+description: Use when the user explicitly requests a time or token estimate, or when substantial future work needs a scoped approval decision supported by a forecast. Do not use for direct answers, reviews, status reports, completed work, small already-authorized edits, or casual next-step suggestions.
 ---
 
 # Estimate Time and Tokens
 
 Treat an estimate as an active control, not a one-time prediction. State the original promise, measure progress, revise elapsed-plus-remaining projections when evidence changes, and stop before silently exceeding the approved envelope.
+
+## Scope gate
+
+Continue only when an estimate is itself requested or a material approval
+decision depends on forecasting substantial future work. A plan, comparison,
+offer to help, or next-step suggestion does not activate this skill on its own.
+Do not load the calibration workflow for work that is complete, read-only,
+minor, or already authorized.
 
 ## Forecast the complete scope
 
