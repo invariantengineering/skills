@@ -1,17 +1,23 @@
 ---
 name: hitl-pr-review-walkthrough
 description: >
-  When a task has a human-in-the-loop (HITL) requirement to review a pull
-  request, create a hands-on reviewer walkthrough that explains exactly how to
-  test, evaluate, and merge it. Also use when the user asks for a PR review
-  tutorial, review runbook, testing checklist, merge checklist, reviewer
-  handoff, or instructions for future reviewers with no context.
+  Use when creating or updating a pull-request description or reviewer handoff,
+  or when the user explicitly requests a pull-request runbook or merge
+  checklist. Do not use for generic pull-request status checks, code-review
+  findings, or implementation work before reviewer handoff.
 ---
 
 # hitl-pr-review-walkthrough
 
 Create a practical walkthrough that lets a human reviewer validate a pull
 request without relying on memory, chat history, or unstated context.
+
+## Scope gate
+
+Continue only when the current deliverable is the reviewer-facing walkthrough
+itself. If the task is checking pull-request status, reviewing code, reporting
+findings, or still implementing the change, wait until the reviewer handoff is
+being prepared.
 
 ## Principles
 

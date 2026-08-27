@@ -1,11 +1,10 @@
 ---
 name: pipe-down
 description: >
-  Run exactly one shell command per Bash call. No chaining, no pipes, no
-  command substitution, no subshells. Keeping every command simple and
-  canonical lets it match Claude Code's permission allowlist, so approved
-  commands run without re-prompting. Use whenever running terminal, shell,
-  or Bash commands.
+  Use when commands will actually run in a host shell and each command must be
+  separately inspectable or approvable. Run one command per shell call without
+  chaining, pipes, command substitution, or subshells. Do not use for tasks
+  with no shell commands or inside an explicitly approved disposable container.
 ---
 
 # pipe-down
@@ -13,6 +12,12 @@ description: >
 Run **one command per Bash call**. Never combine commands into a single
 invocation. Each call should be the simplest, most canonical form of one
 operation.
+
+## Scope gate
+
+Continue only when the task will execute commands directly on the host. If no
+shell command will run, or all command work is contained in an explicitly
+approved disposable container, do not load or apply the remaining rules.
 
 ## Why this matters
 
