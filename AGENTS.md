@@ -58,6 +58,12 @@ the current request needs them.
 
 - Resolve exact targets before deleting, overwriting, moving, or cleaning
   files, branches, or worktrees. Stop when ownership or scope is ambiguous.
+- Before drafting, rewriting, or editing content that will be committed,
+  published, shipped, or handed off, load `ghostwriter`.
+- Use neutral, task-specific branch names. Never include assistant, provider,
+  or tool names in branch names, commit messages, pull-request descriptions,
+  product documentation, code comments, or shipped copy. Reusable tooling may
+  retain names required for its operation.
 - Keep temporary work in an established, ignored repository-local scratch or
   planning directory. Confirm it does not appear in Git status.
 - Keep committed and published writing neutral and public-safe. Exclude
