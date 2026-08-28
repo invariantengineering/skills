@@ -39,9 +39,15 @@ the current request needs them.
 ## Repository workflow
 
 - Do not mutate Git state during read-only work.
-- For authorized repository changes, start from a fetched default branch and
-  use a dedicated feature branch and worktree when the repository workflow
-  requires them.
+- Before the first repository-content edit, inspect the current branch and
+  worktree status. This lightweight gate is mandatory even when no Git skill is
+  otherwise selected.
+- Never edit repository content on a default or protected branch. If the
+  current task has not explicitly verified a clean, intended feature worktree,
+  load `durable-worktree-safety` and establish one from the fetched default
+  branch before editing.
+- After the current task verifies a clean, intended feature worktree, ordinary
+  edits can proceed without loading the remaining durability workflow.
 - Preserve unrelated user changes. Inspect and stage only files that belong to
   the requested change.
 - Validate the smallest relevant surface before handoff.
@@ -52,6 +58,12 @@ the current request needs them.
 
 - Resolve exact targets before deleting, overwriting, moving, or cleaning
   files, branches, or worktrees. Stop when ownership or scope is ambiguous.
+- Before drafting, rewriting, or editing content that will be committed,
+  published, shipped, or handed off, load `ghostwriter`.
+- Use neutral, task-specific branch names. Never include assistant, provider,
+  or tool names in branch names, commit messages, pull-request descriptions,
+  product documentation, code comments, or shipped copy. Reusable tooling may
+  retain names required for its operation.
 - Keep temporary work in an established, ignored repository-local scratch or
   planning directory. Confirm it does not appear in Git status.
 - Keep committed and published writing neutral and public-safe. Exclude
