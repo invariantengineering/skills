@@ -1,11 +1,12 @@
 ---
 name: durable-worktree-safety
 description: >
-  Use for Git or worktree mutations where branch integrity or durable recovery
-  matters: creating or moving worktrees, dirty or polluted branches, commits,
-  pushes, pull-request preparation, handoffs, destructive cleanup, or recovery.
-  Do not use for read-only repository inspection, code review, explanation,
-  status reporting, or ordinary edits in an already-safe worktree.
+  Use before the first repository-content edit when the current task has not
+  explicitly verified a clean, intended feature worktree, and for Git or
+  worktree mutations, dirty or polluted branches, commits, pushes, pull-request
+  preparation, handoffs, destructive cleanup, or recovery. Do not use for
+  read-only work or ordinary edits after feature-worktree safety was verified
+  during the current task.
 ---
 
 # Durable Worktree Safety
@@ -15,11 +16,12 @@ intended change.
 
 ## Scope gate
 
-Continue only when the task will mutate Git or worktree state, may strand
-valuable local work, or requires a durable handoff or recovery decision. For a
-read-only check or ordinary editing inside an established clean feature
-worktree, use the repository's normal workflow without loading the remaining
-recovery and durability procedures.
+Continue when repository content will change and the current task has not yet
+verified a clean, intended feature worktree; when Git or worktree state will
+change; when valuable local work may be stranded; or when a durable handoff or
+recovery decision is required. For ordinary editing, stop only after the
+current task has explicitly verified that the worktree is clean and on the
+intended non-protected feature branch.
 
 ## Non-negotiable invariants
 
@@ -35,6 +37,9 @@ recovery and durability procedures.
   invent a competing layout when one is documented or already in use.
 - Start feature work from the fetched remote base, not from a possibly stale
   local base branch.
+- Before the first repository-content edit, verify the current branch and
+  status. Never edit on a default or protected branch; establish a clean,
+  intended feature worktree first.
 - Preserve unrelated user changes. Never stage, stash, move, overwrite, clean,
   reset, or discard them merely to make the task easier.
 - Refuse to build a pull request from unrelated branch history.

@@ -39,9 +39,15 @@ the current request needs them.
 ## Repository workflow
 
 - Do not mutate Git state during read-only work.
-- For authorized repository changes, start from a fetched default branch and
-  use a dedicated feature branch and worktree when the repository workflow
-  requires them.
+- Before the first repository-content edit, inspect the current branch and
+  worktree status. This lightweight gate is mandatory even when no Git skill is
+  otherwise selected.
+- Never edit repository content on a default or protected branch. If the
+  current task has not explicitly verified a clean, intended feature worktree,
+  load `durable-worktree-safety` and establish one from the fetched default
+  branch before editing.
+- After the current task verifies a clean, intended feature worktree, ordinary
+  edits can proceed without loading the remaining durability workflow.
 - Preserve unrelated user changes. Inspect and stage only files that belong to
   the requested change.
 - Validate the smallest relevant surface before handoff.
