@@ -5,8 +5,8 @@ description: Use when the user authorizes implementing a code, configuration, wo
 
 # MVP Scope Guard
 
-Keep proposed work limited to the smallest verifiable deliverable that achieves
-the user's stated outcome.
+Choose the smallest safe step that answers the immediate question or achieves
+the requested outcome.
 
 ## Scope gate
 
@@ -30,6 +30,21 @@ estimation, or other discussion before that boundary is crossed.
 - Add only the narrowest regression test for the changed behavior.
 - Update documentation only where the requested user-facing behavior changed.
 
+## Match Validation to the Immediate Question
+
+- Distinguish a usefulness test from production acceptance. Do not turn an
+  authorized trial into production qualification, or substitute a trial for
+  acceptance the user explicitly requested.
+- Reuse proven simple methods. An existing script or prompt, representative
+  real inputs, and human comparison may be enough for an initial usefulness
+  test; do not automatically require a suite, metrics, new application modes,
+  or redesigned evidence references.
+- Separate experiment blockers from integration blockers. A limitation in the
+  production command does not necessarily prevent a safe standalone trial.
+  Preserve authorization, data-handling, and no-writeback boundaries.
+- State what the result does and does not establish. Useful output from a
+  small trial is not proof of production readiness.
+
 ## Scope the MVP
 
 1. State the user's outcome in one sentence.
@@ -48,7 +63,8 @@ estimation, or other discussion before that boundary is crossed.
    - Required now
    - Optional
    - Backlog
-9. Provide the smallest verifiable deliverable first.
+9. Provide the smallest safe step that answers the immediate question or
+   achieves the requested outcome first.
 10. Show time and token estimates for the MVP only.
 
 ## Stop and Simplify
@@ -56,7 +72,8 @@ estimation, or other discussion before that boundary is crossed.
 Reduce the proposal again when:
 
 - It introduces more than one new abstraction.
-- Preparation costs more than execution.
+- Proving the idea safely would take less work than the proposed preparation;
+  offer the smallest safe experiment first and state its limits.
 - Existing work is being regenerated.
 - The proposed scope exceeds the user's stated objective.
 - A foundation cannot be tied to an immediate failure mode.
