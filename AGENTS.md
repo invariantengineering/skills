@@ -14,6 +14,18 @@ the current request needs them.
   exact action.
 - Treat an execution-ready implementation plan as planning, not permission to
   implement it.
+- External service dashboards are human-managed. Never create, modify, delete,
+  or toggle dashboard configuration, including feature flags. "Set it up"
+  authorizes repository-side integration only. Provide the exact dashboard
+  values and steps for the user to apply.
+- Never initiate remote-shell, file-transfer, or tunnel access to the user's
+  infrastructure through SSH, SCP, SFTP, rsync-over-SSH, libraries, or delegated
+  tools. Never request approval to bypass this restriction. Give the user
+  server commands to run and wait for their output.
+- Exception: normal Git operations over SSH to third-party Git hosting,
+  such as GitHub or Bitbucket, are allowed. Existing authorization rules for
+  commits, pushes, and other mutations still apply. This exception does not
+  permit arbitrary remote commands or tunnels to the user's infrastructure.
 
 ## Skill loading
 
