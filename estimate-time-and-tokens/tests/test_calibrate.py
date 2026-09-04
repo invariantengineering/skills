@@ -158,7 +158,9 @@ class CalibrationTest(unittest.TestCase):
                     "event": "reconcile",
                     "run_id": run_id,
                     "reconciled_at": f"2026-01-0{index + 1}T01:01:00Z",
-                    "token_metric": "last_token_usage",
+                    "measurement_version": 2,
+                    "token_metric": "cumulative_counter_delta",
+                    "measurement_status": "available",
                     "token_usage": {"total_tokens": 45000},
                 },
             )
@@ -685,9 +687,11 @@ class CalibrationTest(unittest.TestCase):
         args = self.state_args("execution-boundary")
         session = self.root / "execution-boundary.jsonl"
         rows = [
-            {"timestamp": "2026-01-01T00:00:01Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": {"total_tokens": 100}}}},
-            {"timestamp": "2026-01-01T00:02:00Z", "type": "event_msg", "session_id": "s1", "turn_id": "t1", "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": 100, "cached_input_tokens": 20, "output_tokens": 10, "reasoning_output_tokens": 5, "total_tokens": 110}, "context_size": 800}}},
-            {"timestamp": "2026-01-01T00:03:00Z", "type": "event_msg", "session_id": "s1", "turn_id": "t1", "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": 150, "cached_input_tokens": 30, "output_tokens": 20, "reasoning_output_tokens": 8, "total_tokens": 160}, "context_size": 500}}},
+            {"timestamp": "2026-01-01T00:00:01Z", "type": "session_meta", "payload": {"type": "session_meta", "id": "s1"}},
+            {"timestamp": "2026-01-01T00:01:00Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 100, "cached_input_tokens": 20, "output_tokens": 10, "reasoning_output_tokens": 5, "total_tokens": 100}}}},
+            {"timestamp": "2026-01-01T00:02:00Z", "type": "event_msg", "payload": {"type": "task_started", "turn_id": "t1"}},
+            {"timestamp": "2026-01-01T00:02:01Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 200, "cached_input_tokens": 40, "output_tokens": 20, "reasoning_output_tokens": 10, "total_tokens": 200}, "last_token_usage": {"total_tokens": 900}, "context_size": 800}}},
+            {"timestamp": "2026-01-01T00:03:00Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 300, "cached_input_tokens": 60, "output_tokens": 30, "reasoning_output_tokens": 15, "total_tokens": 300}, "last_token_usage": {"total_tokens": 100}, "context_size": 500}}},
             {"timestamp": "2026-01-01T00:04:00Z", "type": "event_msg", "payload": {"type": "task_complete"}},
         ]
         session.write_text("".join(json.dumps(row) + "\n" for row in rows))
@@ -698,8 +702,8 @@ class CalibrationTest(unittest.TestCase):
 
         self.assertEqual(calibrate.reconcile_pending(args), 1)
         measurement = calibrate.reconstruct(calibrate.load_events(path))["boundary"]["reconcile"]
-        self.assertEqual(measurement["token_usage"]["total_tokens"], 50)
-        self.assertEqual(measurement["token_usage"]["uncached_input_tokens"], 40)
+        self.assertEqual(measurement["token_usage"]["total_tokens"], 200)
+        self.assertEqual(measurement["token_usage"]["uncached_input_tokens"], 160)
         self.assertEqual(measurement["context_size"], 500)
 
     def test_counter_reset_is_unavailable_but_zero_delta_is_valid(self):
@@ -713,8 +717,9 @@ class CalibrationTest(unittest.TestCase):
         args = self.state_args("idempotent")
         session = self.root / "idempotent.jsonl"
         rows = [
-            {"timestamp": "2026-01-01T00:01:00Z", "type": "event_msg", "session_id": "s", "payload": {"type": "token_count", "info": {"last_token_usage": {"total_tokens": 10}}}},
-            {"timestamp": "2026-01-01T00:02:00Z", "type": "event_msg", "session_id": "s", "payload": {"type": "token_count", "info": {"last_token_usage": {"total_tokens": 10}}}},
+            {"timestamp": "2026-01-01T00:00:30Z", "type": "event_msg", "session_id": "s", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 3, "reasoning_output_tokens": 1, "total_tokens": 10}}}},
+            {"timestamp": "2026-01-01T00:01:00Z", "type": "event_msg", "session_id": "s", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 3, "reasoning_output_tokens": 1, "total_tokens": 10}}}},
+            {"timestamp": "2026-01-01T00:02:00Z", "type": "event_msg", "session_id": "s", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 3, "reasoning_output_tokens": 1, "total_tokens": 10}}}},
         ]
         session.write_text("".join(json.dumps(row) + "\n" for row in rows))
         path = calibrate.history_path(args)
@@ -729,11 +734,20 @@ class CalibrationTest(unittest.TestCase):
         path = calibrate.history_path(args)
         for index in range(6):
             run_id = f"chronological-{index}"
-            calibrate.append_event(path, {"event": "forecast", "run_id": run_id, "forecast_at": f"2026-01-0{index + 1}T00:00:00Z", "forecast_time_minutes": [10, 20], "forecast_tokens": [100, 200], "task_class": "bug-fix"})
+            calibrate.append_event(path, {"event": "forecast", "run_id": run_id, "forecast_at": "2026-01-01T00:00:00Z", "forecast_time_minutes": [10, 20], "forecast_tokens": [100, 200], "task_class": "bug-fix"})
             calibrate.append_event(path, {"event": "finish", "run_id": run_id, "finished_at": f"2026-01-0{index + 1}T01:00:00Z", "outcome": "completed", "active_elapsed_seconds": 900})
         result = calibrate.backtest(calibrate.completed_runs(args), "time", "bugfix")
-        self.assertEqual(result["existing"]["sample_count"], 5)
-        self.assertEqual(result["class_correction"]["sample_count"], 5)
+        self.assertEqual(result["existing"]["sample_count"], 0)
+        self.assertEqual(result["class_correction"]["sample_count"], 0)
+
+    def test_stats_skips_unavailable_git_metrics(self):
+        args = self.state_args("stats-unavailable-git")
+        path = calibrate.history_path(args)
+        calibrate.append_event(path, {"event": "forecast", "run_id": "no-git", "forecast_at": "2026-01-01T00:00:00Z", "forecast_time_minutes": [1, 2], "forecast_tokens": [10, 20], "task_class": "feature"})
+        calibrate.append_event(path, {"event": "finish", "run_id": "no-git", "finished_at": "2026-01-01T00:01:00Z", "outcome": "completed", "active_elapsed_seconds": 60, "actual_files": None, "actual_additions": None, "actual_deletions": None})
+        result = calibrate.command_stats(argparse.Namespace(state_dir=args.state_dir, task_class="feature"))
+        self.assertEqual(result["completed_runs"], 1)
+        self.assertEqual(result["files"]["sample_size"], 0)
 
 
 if __name__ == "__main__":

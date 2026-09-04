@@ -238,8 +238,10 @@ def session_file(sessions_dir: Path) -> Path | None:
     return matches[0].resolve() if len(matches) == 1 else None
 
 
-def token_usage(payload: dict[str, Any]) -> dict[str, int | None] | None:
-    usage = (payload.get("info") or {}).get("last_token_usage")
+def token_usage(
+    payload: dict[str, Any], counter: str = "total_token_usage"
+) -> dict[str, int | None] | None:
+    usage = (payload.get("info") or {}).get(counter)
     if not isinstance(usage, dict) or not isinstance(usage.get("total_tokens"), int):
         return None
     values: dict[str, int | None] = {}
@@ -296,7 +298,7 @@ def latest_usage(path: Path) -> dict[str, int | None] | None:
             continue
         payload = envelope.get("payload") or {}
         if envelope.get("type") == "event_msg" and payload.get("type") == "token_count":
-            usage = token_usage(payload) or usage
+            usage = token_usage(payload) or token_usage(payload, "last_token_usage") or usage
     return usage
 
 
@@ -323,66 +325,82 @@ def execution_measurement(
 ) -> dict[str, Any]:
     """Measure only one attributable interval in one session.
 
-    Old records intentionally continue to use ``last_token_usage``. New
-    records require an explicit start boundary and cumulative counters. Any
-    reset, overlap, or missing identifier makes the token measurement unknown.
+    New records use ``total_token_usage``. Session and turn identity is
+    inherited from metadata and boundary events because token events do not
+    repeat those identifiers. A pre-start cumulative sample is required so
+    work before the first in-interval sample is retained.
     """
     start, finish = parse_time(started_at), parse_time(finished_at)
-    selected = []
+    annotated: list[tuple[dict[str, Any], str | None, str | None]] = []
+    current_session: str | None = None
+    current_turn: str | None = None
     for envelope in session_events(path):
-        timestamp = parse_time(envelope["timestamp"])
-        if not start <= timestamp <= finish:
-            continue
         payload = envelope.get("payload") or {}
-        identifiers = {envelope.get("session_id"), payload.get("session_id")}
-        turns = {envelope.get("turn_id"), payload.get("turn_id")}
-        if execution_session_id and execution_session_id not in identifiers:
-            continue
-        if execution_turn_id and execution_turn_id not in turns:
-            continue
-        selected.append(envelope)
-    observed_sessions = {
-        identifier
-        for envelope in selected
-        for identifier in {
-            envelope.get("session_id"),
-            (envelope.get("payload") or {}).get("session_id"),
-        }
-        if identifier
-    }
-    observed_turns = {
-        identifier
-        for envelope in selected
-        for identifier in {
-            envelope.get("turn_id"),
-            (envelope.get("payload") or {}).get("turn_id"),
-        }
-        if identifier
-    }
-    if (not execution_session_id and len(observed_sessions) > 1) or (
-        not execution_turn_id and len(observed_turns) > 1
-    ):
+        if payload.get("type") == "session_meta":
+            current_session = payload.get("session_id") or payload.get("id")
+        if payload.get("type") in {"task_started", "turn_context"}:
+            current_turn = payload.get("turn_id")
+        current_session = envelope.get("session_id") or payload.get("session_id") or current_session
+        current_turn = envelope.get("turn_id") or payload.get("turn_id") or current_turn
+        annotated.append((envelope, current_session, current_turn))
+
+    session_ids = {event_session for _, event_session, _ in annotated if event_session}
+    if execution_session_id and session_ids != {execution_session_id}:
         return {
             "status": "unavailable",
-            "reason": "ambiguous overlapping session or turn identifiers",
+            "reason": "execution session identifier does not match session metadata",
+            "token_usage": None,
+            "context_size": None,
+        }
+    if not execution_session_id and len(session_ids) > 1:
+        return {
+            "status": "unavailable",
+            "reason": "ambiguous overlapping execution sessions",
+            "token_usage": None,
+            "context_size": None,
+        }
+    selected = []
+    for envelope, event_session, event_turn in annotated:
+        timestamp = parse_time(envelope["timestamp"])
+        if timestamp > finish:
+            continue
+        if execution_session_id and event_session != execution_session_id:
+            continue
+        if execution_turn_id and timestamp >= start and event_turn != execution_turn_id:
+            continue
+        selected.append((envelope, event_session, event_turn))
+    interval_turns = {
+        event_turn
+        for envelope, _, event_turn in selected
+        if parse_time(envelope["timestamp"]) >= start and event_turn
+    }
+    if not execution_turn_id and len(interval_turns) > 1:
+        return {
+            "status": "unavailable",
+            "reason": "ambiguous overlapping execution turns",
             "token_usage": None,
             "context_size": None,
         }
     counters = []
-    for envelope in selected:
+    for envelope, event_session, event_turn in selected:
         payload = envelope.get("payload") or {}
         if envelope.get("type") == "event_msg" and payload.get("type") == "token_count":
-            usage = token_usage(payload)
+            usage = token_usage(payload, "total_token_usage")
             if usage:
-                counters.append((envelope["timestamp"], usage))
-    if len(counters) < 2:
+                counters.append((parse_time(envelope["timestamp"]), usage))
+    baseline = [item for item in counters if item[0] <= start]
+    closing = [item for item in counters if item[0] <= finish]
+    if not baseline or not closing:
         return {
             "status": "unavailable",
-            "reason": "fewer than two attributable cumulative counter samples",
+            "reason": "missing cumulative counter baseline or closing sample",
             "token_usage": None,
             "context_size": None,
         }
-    for (_, previous), (_, current) in zip(counters, counters[1:]):
+    first = baseline[-1][1]
+    last = closing[-1][1]
+    interval = [item for item in counters if baseline[-1][0] <= item[0] <= closing[-1][0]]
+    for (_, previous), (_, current) in zip(interval, interval[1:]):
         if token_counter_delta(previous, current) is None:
             return {
                 "status": "unavailable",
@@ -390,7 +408,6 @@ def execution_measurement(
                 "token_usage": None,
                 "context_size": None,
             }
-    first, last = counters[0][1], counters[-1][1]
     delta = token_counter_delta(first, last)
     if delta is None:
         return {
@@ -400,7 +417,7 @@ def execution_measurement(
             "context_size": None,
         }
     context_sizes = []
-    for envelope in selected:
+    for envelope, _, _ in selected:
         info = ((envelope.get("payload") or {}).get("info") or {})
         value = info.get("context_size")
         if isinstance(value, int):
@@ -423,7 +440,7 @@ def last_usage_for_turn(path: Path, after: str) -> dict[str, int | None] | None:
             continue
         payload = envelope.get("payload") or {}
         if envelope.get("type") == "event_msg" and payload.get("type") == "token_count":
-            last_usage = token_usage(payload) or last_usage
+            last_usage = token_usage(payload, "last_token_usage") or last_usage
         if envelope.get("type") == "event_msg" and payload.get("type") == "task_complete":
             return last_usage
     return last_usage
@@ -546,7 +563,22 @@ def completed_runs(args: argparse.Namespace) -> list[dict[str, Any]]:
     return sorted(completed, key=lambda run: run["finish"]["finished_at"])
 
 
-def observations(runs: list[dict[str, Any]], metric: str) -> list[float]:
+def token_cohort(run: dict[str, Any]) -> str | None:
+    reconcile = run.get("reconcile") or {}
+    if reconcile.get("measurement_version", 1) >= MEASUREMENT_VERSION and reconcile.get(
+        "token_metric"
+    ) == "cumulative_counter_delta":
+        return "consumed-counter-delta"
+    if reconcile.get("token_metric") == "last_token_usage":
+        return "legacy-last-usage"
+    return None
+
+
+def observations(
+    runs: list[dict[str, Any]],
+    metric: str,
+    token_definition: str | None = None,
+) -> list[float]:
     ratios: list[float] = []
     for run in runs:
         if metric == "time":
@@ -557,6 +589,8 @@ def observations(runs: list[dict[str, Any]], metric: str) -> list[float]:
             actual = elapsed / 60
         elif metric == "tokens":
             if not run.get("reconcile"):
+                continue
+            if token_definition and token_cohort(run) != token_definition:
                 continue
             if run["reconcile"].get("measurement_status") == "unavailable":
                 continue
@@ -619,8 +653,10 @@ def select_runs(
     return (source_runs[-20:], "task_class") if len(matching) >= 5 else (runs[-20:], "global")
 
 
-def metric_summary(runs: list[dict[str, Any]], metric: str) -> dict[str, Any]:
-    ratios = observations(runs, metric)
+def metric_summary(
+    runs: list[dict[str, Any]], metric: str, token_definition: str | None = None
+) -> dict[str, Any]:
+    ratios = observations(runs, metric, token_definition)
     summary: dict[str, Any] = {
         "sample_size": len(ratios),
         "confidence": confidence(len(ratios)),
@@ -752,7 +788,9 @@ def command_forecast(args: argparse.Namespace) -> dict[str, Any]:
     runs = completed_runs(args)
     selected, source = select_runs(runs, args.task_class)
     time_summary = metric_summary(selected, "time")
-    token_summary = metric_summary(selected, "tokens")
+    token_summary = metric_summary(
+        selected, "tokens", token_definition="consumed-counter-delta"
+    )
     aggregate_token_summary = metric_summary(selected, "aggregate_tokens")
     scope = {
         "files": metric_summary(selected, "files"),
@@ -1301,13 +1339,22 @@ def backtest(runs: list[dict[str, Any]], metric: str, task_class: str) -> dict[s
     results: dict[str, list[float]] = {"existing": [], "class_correction": []}
     covered: dict[str, int] = {"existing": 0, "class_correction": 0}
     for index, target in enumerate(ordered):
-        prior = ordered[:index]
-        global_ratios = observations(prior, metric)
+        forecast_at = parse_time(target["forecast_at"])
+        prior = [
+            run
+            for run in ordered[:index]
+            if parse_time(run["finish"]["finished_at"]) < forecast_at
+        ]
+        global_ratios = observations(
+            prior, metric, "consumed-counter-delta" if metric == "tokens" else None
+        )
         class_prior = [
             run for run in prior
             if normalize_task_class(run.get("task_class")) == normalize_task_class(task_class)
         ]
-        class_ratios = observations(class_prior, metric)
+        class_ratios = observations(
+            class_prior, metric, "consumed-counter-delta" if metric == "tokens" else None
+        )
         if not global_ratios:
             continue
         raw_key = {
@@ -1316,7 +1363,11 @@ def backtest(runs: list[dict[str, Any]], metric: str, task_class: str) -> dict[s
         }.get(metric)
         if not raw_key or not target.get("finish"):
             continue
-        actual_values = observations([target], metric)
+        actual_values = observations(
+            [target],
+            metric,
+            "consumed-counter-delta" if metric == "tokens" else None,
+        )
         if not actual_values:
             continue
         actual = actual_values[0] * midpoint(target[raw_key])
@@ -1352,7 +1403,10 @@ def command_stats(args: argparse.Namespace) -> dict[str, Any]:
     planned_recall: list[float] = []
     for run in selected:
         planned = set(run.get("expected_files", []) + run.get("possible_files", []))
-        actual = set(run["finish"].get("actual_files", []))
+        actual_files = run["finish"].get("actual_files")
+        if actual_files is None:
+            continue
+        actual = set(actual_files)
         overlap = len(planned & actual)
         if planned:
             planned_precision.append(overlap / len(planned))
@@ -1371,7 +1425,9 @@ def command_stats(args: argparse.Namespace) -> dict[str, Any]:
         "calibration_source": source,
         "completed_runs": len(selected),
         "time": metric_summary(selected, "time"),
-        "tokens": metric_summary(selected, "tokens"),
+        "tokens": metric_summary(
+            selected, "tokens", token_definition="consumed-counter-delta"
+        ),
         "aggregate_tokens": metric_summary(selected, "aggregate_tokens"),
         "files": metric_summary(selected, "files"),
         "diff_lines": metric_summary(selected, "diff"),

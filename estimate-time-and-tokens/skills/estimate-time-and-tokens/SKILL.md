@@ -14,8 +14,9 @@ reader can distinguish what was submitted from what was shown.
 ## Measurement and closure rules
 
 Start a run in the implementation worktree before editing. New reconciliation
-uses the explicit start and finish boundaries, and available session/turn
-identifiers, to calculate cumulative counter differences. Cached input,
+uses the explicit start and finish boundaries, inherited session/turn metadata,
+and a pre-start cumulative baseline to calculate `total_token_usage`
+differences. Cached input,
 uncached input, output, reasoning output, and total tokens remain separate.
 Context size is descriptive only and is never treated as consumed tokens.
 Counter resets, overlapping or unattributable sessions, and missing counters are
