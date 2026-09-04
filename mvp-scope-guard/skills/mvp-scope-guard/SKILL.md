@@ -22,6 +22,10 @@ estimation, or other discussion before that boundary is crossed.
 - Apply the guard silently unless it removes proposed scope or requires user
   opt-in.
 - Treat the user's rationale as context, not an additional requirement.
+- Match the existing style and conventions instead of improving adjacent code,
+  comments, formatting, or structure.
+- Remove only code that the current change makes obsolete. Report pre-existing
+  dead code rather than deleting it unless the user asks.
 - Before editing, state the requested change and explicit non-goals.
 - Do not implement optional improvements without explicit opt-in.
 - Require confirmation before adding new abstractions, persistent state,
