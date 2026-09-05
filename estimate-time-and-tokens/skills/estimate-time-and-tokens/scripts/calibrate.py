@@ -159,7 +159,7 @@ def current_token_usage(run: dict[str, Any], explicit: int | None) -> int | None
     if explicit is not None:
         return explicit
     stored_session = run.get("session_file")
-    usage = latest_usage(Path(stored_session)) if stored_session else None
+    usage = latest_total_usage(Path(stored_session)) if stored_session else None
     return usage["total_tokens"] if usage else None
 
 
@@ -287,7 +287,7 @@ def token_counter_delta(
     return deltas
 
 
-def latest_usage(path: Path) -> dict[str, int | None] | None:
+def latest_total_usage(path: Path) -> dict[str, int | None] | None:
     if not path.exists():
         return None
     usage: dict[str, int | None] | None = None
@@ -298,8 +298,31 @@ def latest_usage(path: Path) -> dict[str, int | None] | None:
             continue
         payload = envelope.get("payload") or {}
         if envelope.get("type") == "event_msg" and payload.get("type") == "token_count":
-            usage = token_usage(payload) or token_usage(payload, "last_token_usage") or usage
+            usage = token_usage(payload) or usage
     return usage
+
+
+def latest_context_size(path: Path) -> int | None:
+    """Read current context size, never lifetime consumed tokens."""
+    if not path.exists():
+        return None
+    context_size: int | None = None
+    for envelope in path.read_text(encoding="utf-8").splitlines():
+        try:
+            envelope_data = json.loads(envelope)
+        except json.JSONDecodeError:
+            continue
+        payload = envelope_data.get("payload") or {}
+        if envelope_data.get("type") != "event_msg" or payload.get("type") != "token_count":
+            continue
+        info = payload.get("info") or {}
+        if isinstance(info.get("context_size"), int):
+            context_size = info["context_size"]
+            continue
+        last = info.get("last_token_usage") or {}
+        if isinstance(last.get("input_tokens"), int):
+            context_size = last["input_tokens"]
+    return context_size
 
 
 def session_events(path: Path) -> list[dict[str, Any]]:
@@ -336,7 +359,7 @@ def execution_measurement(
     current_turn: str | None = None
     for envelope in session_events(path):
         payload = envelope.get("payload") or {}
-        if payload.get("type") == "session_meta":
+        if envelope.get("type") == "session_meta":
             current_session = payload.get("session_id") or payload.get("id")
         if payload.get("type") in {"task_started", "turn_context"}:
             current_turn = payload.get("turn_id")
@@ -389,7 +412,7 @@ def execution_measurement(
             if usage:
                 counters.append((parse_time(envelope["timestamp"]), usage))
     baseline = [item for item in counters if item[0] <= start]
-    closing = [item for item in counters if item[0] <= finish]
+    closing = [item for item in counters if start < item[0] <= finish]
     if not baseline or not closing:
         return {
             "status": "unavailable",
@@ -594,8 +617,17 @@ def observations(
                 continue
             if run["reconcile"].get("measurement_status") == "unavailable":
                 continue
+            cohort = token_cohort(run)
             observed_floor = run.get("observed_token_floor")
-            if observed_floor is not None and run.get("submitted_forecast_tokens"):
+            if cohort == "consumed-counter-delta":
+                predicted = midpoint(
+                    run.get("submitted_forecast_tokens") or run["forecast_tokens"]
+                )
+                total = (run["reconcile"].get("token_usage") or {}).get("total_tokens")
+                if total is None:
+                    continue
+                actual = total
+            elif observed_floor is not None and run.get("submitted_forecast_tokens"):
                 predicted = midpoint(run["submitted_forecast_tokens"])
                 total = (run["reconcile"].get("token_usage") or {}).get("total_tokens")
                 if total is None:
@@ -805,9 +837,8 @@ def command_forecast(args: argparse.Namespace) -> dict[str, Any]:
         else DEFAULT_SESSIONS_DIR
     )
     current_session = session_file(sessions_dir)
-    current_usage = latest_usage(current_session) if current_session else None
-    token_floor = current_usage["total_tokens"] if current_usage else None
-    raw_tokens = token_total_bounds(submitted_tokens, token_floor)
+    context_size = latest_context_size(current_session) if current_session else None
+    raw_tokens = token_total_bounds(submitted_tokens, context_size)
     aggregate_tokens_low = getattr(args, "aggregate_tokens_low", None)
     aggregate_tokens_high = getattr(args, "aggregate_tokens_high", None)
     aggregate_tokens = (
@@ -819,7 +850,7 @@ def command_forecast(args: argparse.Namespace) -> dict[str, Any]:
     calibrated_incremental_tokens = calibrated_bounds(
         submitted_tokens, token_summary, "tokens"
     )
-    calibrated_tokens = token_total_bounds(calibrated_incremental_tokens, token_floor)
+    calibrated_tokens = token_total_bounds(calibrated_incremental_tokens, context_size)
     metric_definitions = {
         "time": "active elapsed time between explicit start and finish boundaries",
         "tokens": "cumulative counter deltas within the attributable execution interval",
@@ -838,7 +869,7 @@ def command_forecast(args: argparse.Namespace) -> dict[str, Any]:
         "forecast_tokens": raw_tokens,
         "submitted_forecast_tokens": submitted_tokens,
         "forecast_aggregate_tokens": aggregate_tokens,
-        "observed_token_floor": token_floor,
+        "observed_context_size": context_size,
         "work_units": getattr(args, "work_units", 1),
         "implementation_agents": getattr(args, "implementation_agents", 1),
         "reviewers": getattr(args, "reviewers", 0),
@@ -887,8 +918,9 @@ def command_forecast(args: argparse.Namespace) -> dict[str, Any]:
             "incremental_calibrated": calibrated_incremental_tokens,
             "final_context": raw_tokens,
             "calibrated": calibrated_tokens,
-            "observed_floor": token_floor,
-            "metric": "last_token_usage.total_tokens",
+            "observed_floor": context_size,
+            "observed_context_size": context_size,
+            "metric": "cumulative_counter_delta",
             **token_summary,
         },
         "aggregate_tokens": {
@@ -1359,10 +1391,12 @@ def backtest(runs: list[dict[str, Any]], metric: str, task_class: str) -> dict[s
             continue
         raw_key = {
             "time": "forecast_time_minutes",
-            "tokens": "forecast_tokens",
+            "tokens": "submitted_forecast_tokens",
         }.get(metric)
         if not raw_key or not target.get("finish"):
             continue
+        if metric == "tokens" and not target.get(raw_key):
+            raw_key = "forecast_tokens"
         actual_values = observations(
             [target],
             metric,
@@ -1370,18 +1404,19 @@ def backtest(runs: list[dict[str, Any]], metric: str, task_class: str) -> dict[s
         )
         if not actual_values:
             continue
-        actual = actual_values[0] * midpoint(target[raw_key])
+        prediction = midpoint(target[raw_key])
+        actual = actual_values[0] * prediction
         methods = {
             "existing": global_ratios,
             "class_correction": class_ratios if len(class_ratios) >= 3 else global_ratios,
         }
         for name, ratios in methods.items():
             if len(ratios) < 5:
-                low = high = midpoint(target[raw_key])
+                low = high = prediction
             else:
-                low = midpoint(target[raw_key]) * quantile(ratios, 0.2)
-                high = midpoint(target[raw_key]) * quantile(ratios, 0.8)
-            midpoint_error = abs(midpoint(target[raw_key]) * statistics.median(ratios) - actual)
+                low = prediction * quantile(ratios, 0.2)
+                high = prediction * quantile(ratios, 0.8)
+            midpoint_error = abs(prediction * statistics.median(ratios) - actual)
             results[name].append(midpoint_error)
             covered[name] += int(low <= actual <= high)
     return {
