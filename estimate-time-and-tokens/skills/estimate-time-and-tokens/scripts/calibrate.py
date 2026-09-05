@@ -159,8 +159,19 @@ def current_token_usage(run: dict[str, Any], explicit: int | None) -> int | None
     if explicit is not None:
         return explicit
     stored_session = run.get("session_file")
+    baseline = (run.get("start") or {}).get("execution_token_baseline")
     usage = latest_total_usage(Path(stored_session)) if stored_session else None
-    return usage["total_tokens"] if usage else None
+    if usage is None or baseline is None:
+        return None
+    total = usage.get("total_tokens")
+    if total is None or total < baseline:
+        return None
+    return total - baseline
+
+
+def current_context_size(run: dict[str, Any]) -> int | None:
+    stored_session = run.get("session_file")
+    return latest_context_size(Path(stored_session)) if stored_session else None
 
 
 def current_envelope(run: dict[str, Any]) -> dict[str, list[int] | None]:
@@ -174,13 +185,15 @@ def current_envelope(run: dict[str, Any]) -> dict[str, list[int] | None]:
         return {
             "time_minutes": latest["projected_total_time_minutes"],
             "root_tokens": latest.get("projected_root_tokens")
+            or run.get("submitted_forecast_tokens")
             or run["forecast_tokens"],
             "aggregate_tokens": latest.get("projected_aggregate_tokens")
             or run.get("forecast_aggregate_tokens"),
         }
     return {
         "time_minutes": run["forecast_time_minutes"],
-        "root_tokens": run["forecast_tokens"],
+        "root_tokens": run.get("submitted_forecast_tokens")
+        or run["forecast_tokens"],
         "aggregate_tokens": run.get("forecast_aggregate_tokens"),
     }
 
@@ -295,6 +308,18 @@ def latest_total_usage(path: Path) -> dict[str, int | None] | None:
         try:
             envelope = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        payload = envelope.get("payload") or {}
+        if envelope.get("type") == "event_msg" and payload.get("type") == "token_count":
+            usage = token_usage(payload) or usage
+    return usage
+
+
+def total_usage_at(path: Path, at: str) -> dict[str, int | None] | None:
+    boundary = parse_time(at)
+    usage: dict[str, int | None] | None = None
+    for envelope in session_events(path):
+        if parse_time(envelope["timestamp"]) > boundary:
             continue
         payload = envelope.get("payload") or {}
         if envelope.get("type") == "event_msg" and payload.get("type") == "token_count":
@@ -962,10 +987,15 @@ def command_start(args: argparse.Namespace) -> dict[str, Any]:
             "refusing to start in a dirty repository; start before edits or use --allow-dirty "
             "for time/token-only tracking"
         )
+    started_at = utc_now()
+    stored_session = run.get("session_file")
+    baseline_usage = (
+        total_usage_at(Path(stored_session), started_at) if stored_session else None
+    )
     event = {
         "event": "start",
         "run_id": args.run_id,
-        "started_at": utc_now(),
+        "started_at": started_at,
         "repo_name": identity["repo_name"],
         "repo_fingerprint": identity["repo_fingerprint"],
         "branch": identity["branch"],
@@ -979,6 +1009,10 @@ def command_start(args: argparse.Namespace) -> dict[str, Any]:
         "execution_turn_id": getattr(args, "execution_turn_id", None)
         or os.environ.get("CODEX_TURN_ID"),
         "execution_boundary": "start",
+        "execution_token_baseline": (
+            baseline_usage.get("total_tokens") if baseline_usage else None
+        ),
+        "execution_token_baseline_metric": "total_token_usage.total_tokens",
     }
     append_event(history_path(args), event)
     return {
@@ -1018,6 +1052,7 @@ def command_checkpoint(args: argparse.Namespace) -> dict[str, Any]:
     checked_at = utc_now()
     elapsed = active_elapsed(run["events"], checked_at)
     root_tokens = current_token_usage(run, args.root_tokens)
+    context_size = current_context_size(run)
     envelope = current_envelope(run)
     triggers = set(args.trigger)
     completion_ratio = args.completed_units / work_units
@@ -1063,6 +1098,7 @@ def command_checkpoint(args: argparse.Namespace) -> dict[str, Any]:
         "completion_ratio": round(completion_ratio, 3),
         "correction_passes": args.correction_passes,
         "root_token_usage": root_tokens,
+        "context_size": context_size,
         "aggregate_token_usage": args.aggregate_tokens,
         "projected_time_minutes_at_current_burn": projected_time,
         "triggers": sorted(triggers),
@@ -1102,6 +1138,7 @@ def command_reforecast(args: argparse.Namespace) -> dict[str, Any]:
     reforecast_at = utc_now()
     elapsed_minutes = active_elapsed(run["events"], reforecast_at) / 60
     root_tokens = current_token_usage(run, args.root_tokens)
+    context_size = current_context_size(run)
     projected_time = [
         math.floor(elapsed_minutes + args.remaining_time_low),
         math.ceil(elapsed_minutes + args.remaining_time_high),
@@ -1174,6 +1211,7 @@ def command_reforecast(args: argparse.Namespace) -> dict[str, Any]:
         "deviation": args.deviation,
         "active_elapsed_minutes": round(elapsed_minutes, 1),
         "root_token_usage": root_tokens,
+        "context_size": context_size,
         "aggregate_token_usage": args.aggregate_tokens,
         "remaining_time_minutes": [args.remaining_time_low, args.remaining_time_high],
         "remaining_incremental_root_tokens": [

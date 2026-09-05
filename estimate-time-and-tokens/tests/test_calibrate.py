@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -332,6 +333,30 @@ class CalibrationTest(unittest.TestCase):
         finished = calibrate.command_finish(finish_args)
         self.assertEqual(finished["outcome"], "completed")
         self.assertEqual(finished["actual_aggregate_tokens"], 300)
+
+    def test_checkpoint_and_reforecast_use_incremental_tokens_after_large_history(self):
+        args = self.state_args("incremental-budget")
+        start_at = calibrate.utc_now()
+        before = (calibrate.parse_time(start_at) - timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+        after = (calibrate.parse_time(start_at) + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+        session = self.root / "incremental-budget.jsonl"
+        def usage(total):
+            return {"input_tokens": total, "cached_input_tokens": 0, "output_tokens": 0, "reasoning_output_tokens": 0, "total_tokens": total}
+        session.write_text("".join(json.dumps(row) + "\n" for row in [
+            {"timestamp": before, "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": usage(8_000_000)}}},
+            {"timestamp": after, "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": usage(8_020_000)}}},
+        ]))
+        path = calibrate.history_path(args)
+        calibrate.append_event(path, {"event": "forecast", "run_id": "incremental", "forecast_at": before, "forecast_time_minutes": [10, 20], "forecast_tokens": [8_020_000, 8_040_000], "submitted_forecast_tokens": [20_000, 40_000], "task_class": "feature", "session_file": str(session), "work_units": 1})
+        calibrate.append_event(path, {"event": "start", "run_id": "incremental", "started_at": start_at, "session_file": str(session), "execution_token_baseline": 8_000_000})
+        checkpoint_args = argparse.Namespace(state_dir=args.state_dir, run_id="incremental", completed_units=0, correction_passes=0, root_tokens=None, aggregate_tokens=None, implementation_agents=1, reviewers=0, trigger=[], reason=None)
+        checkpoint = calibrate.command_checkpoint(checkpoint_args)
+        self.assertEqual(checkpoint["root_token_usage"], 20_000)
+        self.assertEqual(checkpoint["control_action"], "continue")
+        reforecast_args = argparse.Namespace(state_dir=args.state_dir, run_id="incremental", remaining_time_low=5, remaining_time_high=10, remaining_tokens_low=10_000, remaining_tokens_high=20_000, root_tokens=None, aggregate_tokens=None, remaining_aggregate_tokens_low=None, remaining_aggregate_tokens_high=None, work_units=None, implementation_agents=None, reviewers=None, max_correction_passes=None, deviation="estimator-error", reason="incremental budget check", approved=False)
+        reforecast = calibrate.command_reforecast(reforecast_args)
+        self.assertEqual(reforecast["projected_root_tokens"], [30_000, 40_000])
+        self.assertEqual(reforecast["control_action"], "continue")
 
     def test_scope_deviation_is_retained_but_excluded_from_calibration(self):
         args = self.state_args("deviation")
