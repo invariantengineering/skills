@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -158,7 +159,9 @@ class CalibrationTest(unittest.TestCase):
                     "event": "reconcile",
                     "run_id": run_id,
                     "reconciled_at": f"2026-01-0{index + 1}T01:01:00Z",
-                    "token_metric": "last_token_usage",
+                    "measurement_version": 2,
+                    "token_metric": "cumulative_counter_delta",
+                    "measurement_status": "available",
                     "token_usage": {"total_tokens": 45000},
                 },
             )
@@ -199,7 +202,10 @@ class CalibrationTest(unittest.TestCase):
                     "type": "event_msg",
                     "payload": {
                         "type": "token_count",
-                        "info": {"last_token_usage": {"total_tokens": 120000}},
+                        "info": {
+                            "total_token_usage": {"total_tokens": 8020000},
+                            "last_token_usage": {"input_tokens": 120000, "total_tokens": 50000},
+                        },
                     },
                 }
             )
@@ -327,6 +333,30 @@ class CalibrationTest(unittest.TestCase):
         finished = calibrate.command_finish(finish_args)
         self.assertEqual(finished["outcome"], "completed")
         self.assertEqual(finished["actual_aggregate_tokens"], 300)
+
+    def test_checkpoint_and_reforecast_use_incremental_tokens_after_large_history(self):
+        args = self.state_args("incremental-budget")
+        start_at = calibrate.utc_now()
+        before = (calibrate.parse_time(start_at) - timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+        after = (calibrate.parse_time(start_at) + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+        session = self.root / "incremental-budget.jsonl"
+        def usage(total):
+            return {"input_tokens": total, "cached_input_tokens": 0, "output_tokens": 0, "reasoning_output_tokens": 0, "total_tokens": total}
+        session.write_text("".join(json.dumps(row) + "\n" for row in [
+            {"timestamp": before, "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": usage(8_000_000)}}},
+            {"timestamp": after, "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": usage(8_020_000)}}},
+        ]))
+        path = calibrate.history_path(args)
+        calibrate.append_event(path, {"event": "forecast", "run_id": "incremental", "forecast_at": before, "forecast_time_minutes": [10, 20], "forecast_tokens": [8_020_000, 8_040_000], "submitted_forecast_tokens": [20_000, 40_000], "task_class": "feature", "session_file": str(session), "work_units": 1})
+        calibrate.append_event(path, {"event": "start", "run_id": "incremental", "started_at": start_at, "session_file": str(session), "execution_token_baseline": 8_000_000})
+        checkpoint_args = argparse.Namespace(state_dir=args.state_dir, run_id="incremental", completed_units=0, correction_passes=0, root_tokens=None, aggregate_tokens=None, implementation_agents=1, reviewers=0, trigger=[], reason=None)
+        checkpoint = calibrate.command_checkpoint(checkpoint_args)
+        self.assertEqual(checkpoint["root_token_usage"], 20_000)
+        self.assertEqual(checkpoint["control_action"], "continue")
+        reforecast_args = argparse.Namespace(state_dir=args.state_dir, run_id="incremental", remaining_time_low=5, remaining_time_high=10, remaining_tokens_low=10_000, remaining_tokens_high=20_000, root_tokens=None, aggregate_tokens=None, remaining_aggregate_tokens_low=None, remaining_aggregate_tokens_high=None, work_units=None, implementation_agents=None, reviewers=None, max_correction_passes=None, deviation="estimator-error", reason="incremental budget check", approved=False)
+        reforecast = calibrate.command_reforecast(reforecast_args)
+        self.assertEqual(reforecast["projected_root_tokens"], [30_000, 40_000])
+        self.assertEqual(reforecast["control_action"], "continue")
 
     def test_scope_deviation_is_retained_but_excluded_from_calibration(self):
         args = self.state_args("deviation")
@@ -680,6 +710,104 @@ class CalibrationTest(unittest.TestCase):
         self.assertEqual(stats["actual_files"], ["new.txt", "tracked.txt"])
         self.assertEqual(stats["actual_additions"], 3)
         self.assertEqual(stats["actual_deletions"], 0)
+
+    def test_reconcile_attributes_execution_interval_not_planning_turn(self):
+        args = self.state_args("execution-boundary")
+        session = self.root / "execution-boundary.jsonl"
+        rows = [
+            {"timestamp": "2026-01-01T00:00:01Z", "type": "session_meta", "payload": {"id": "s1"}},
+            {"timestamp": "2026-01-01T00:01:00Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 100, "cached_input_tokens": 20, "output_tokens": 10, "reasoning_output_tokens": 5, "total_tokens": 100}}}},
+            {"timestamp": "2026-01-01T00:02:00Z", "type": "event_msg", "payload": {"type": "task_started", "turn_id": "t1"}},
+            {"timestamp": "2026-01-01T00:02:01Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 200, "cached_input_tokens": 40, "output_tokens": 20, "reasoning_output_tokens": 10, "total_tokens": 200}, "last_token_usage": {"total_tokens": 900}, "context_size": 800}}},
+            {"timestamp": "2026-01-01T00:03:00Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 300, "cached_input_tokens": 60, "output_tokens": 30, "reasoning_output_tokens": 15, "total_tokens": 300}, "last_token_usage": {"total_tokens": 100}, "context_size": 500}}},
+            {"timestamp": "2026-01-01T00:04:00Z", "type": "event_msg", "payload": {"type": "task_complete"}},
+        ]
+        session.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        path = calibrate.history_path(args)
+        calibrate.append_event(path, {"event": "forecast", "run_id": "boundary", "forecast_at": "2026-01-01T00:00:00Z", "forecast_time_minutes": [1, 2], "forecast_tokens": [1, 2], "task_class": "feature", "session_file": str(session)})
+        calibrate.append_event(path, {"event": "start", "run_id": "boundary", "started_at": "2026-01-01T00:02:00Z", "execution_session_id": "s1", "execution_turn_id": "t1"})
+        calibrate.append_event(path, {"event": "finish", "run_id": "boundary", "finished_at": "2026-01-01T00:04:00Z", "outcome": "completed", "active_elapsed_seconds": 120})
+
+        self.assertEqual(calibrate.reconcile_pending(args), 1)
+        measurement = calibrate.reconstruct(calibrate.load_events(path))["boundary"]["reconcile"]
+        self.assertEqual(measurement["token_usage"]["total_tokens"], 200)
+        self.assertEqual(measurement["token_usage"]["uncached_input_tokens"], 160)
+        self.assertEqual(measurement["context_size"], 500)
+
+    def test_counter_reset_is_unavailable_but_zero_delta_is_valid(self):
+        before = {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 3, "reasoning_output_tokens": 1, "total_tokens": 13}
+        reset = dict(before, total_tokens=12)
+        zero = dict(before)
+        self.assertIsNone(calibrate.token_counter_delta(before, reset))
+        self.assertEqual(calibrate.token_counter_delta(before, zero)["total_tokens"], 0)
+
+    def test_reconciliation_is_idempotent(self):
+        args = self.state_args("idempotent")
+        session = self.root / "idempotent.jsonl"
+        rows = [
+            {"timestamp": "2026-01-01T00:00:30Z", "type": "event_msg", "session_id": "s", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 3, "reasoning_output_tokens": 1, "total_tokens": 10}}}},
+            {"timestamp": "2026-01-01T00:01:00Z", "type": "event_msg", "session_id": "s", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 3, "reasoning_output_tokens": 1, "total_tokens": 10}}}},
+            {"timestamp": "2026-01-01T00:02:00Z", "type": "event_msg", "session_id": "s", "payload": {"type": "token_count", "info": {"total_token_usage": {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 3, "reasoning_output_tokens": 1, "total_tokens": 10}}}},
+        ]
+        session.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        path = calibrate.history_path(args)
+        calibrate.append_event(path, {"event": "forecast", "run_id": "once", "forecast_at": "2026-01-01T00:00:00Z", "forecast_time_minutes": [1, 2], "forecast_tokens": [1, 2], "task_class": "feature", "session_file": str(session)})
+        calibrate.append_event(path, {"event": "start", "run_id": "once", "started_at": "2026-01-01T00:01:00Z", "execution_session_id": "s"})
+        calibrate.append_event(path, {"event": "finish", "run_id": "once", "finished_at": "2026-01-01T00:02:00Z", "outcome": "completed", "active_elapsed_seconds": 60})
+        self.assertEqual(calibrate.reconcile_pending(args), 1)
+        self.assertEqual(calibrate.reconcile_pending(args), 0)
+
+    def test_reconcile_requires_distinct_closing_sample(self):
+        args = self.state_args("missing-closing")
+        session = self.root / "missing-closing.jsonl"
+        usage = {"input_tokens": 10, "cached_input_tokens": 2, "output_tokens": 3, "reasoning_output_tokens": 1, "total_tokens": 10}
+        rows = [
+            {"timestamp": "2026-01-01T00:00:01Z", "type": "session_meta", "payload": {"id": "s"}},
+            {"timestamp": "2026-01-01T00:01:00Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": usage}}},
+        ]
+        session.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        path = calibrate.history_path(args)
+        calibrate.append_event(path, {"event": "forecast", "run_id": "missing", "forecast_at": "2026-01-01T00:00:00Z", "forecast_time_minutes": [1, 2], "forecast_tokens": [10, 20], "task_class": "feature", "session_file": str(session)})
+        calibrate.append_event(path, {"event": "start", "run_id": "missing", "started_at": "2026-01-01T00:01:00Z", "execution_session_id": "s"})
+        calibrate.append_event(path, {"event": "finish", "run_id": "missing", "finished_at": "2026-01-01T00:02:00Z", "outcome": "completed", "active_elapsed_seconds": 60})
+        calibrate.reconcile_pending(args)
+        measurement = calibrate.reconstruct(calibrate.load_events(path))["missing"]["reconcile"]
+        self.assertEqual(measurement["measurement_status"], "unavailable")
+        self.assertIsNone(measurement["token_usage"])
+
+    def test_backtest_reports_chronological_samples(self):
+        args = self.state_args("backtest")
+        path = calibrate.history_path(args)
+        for index in range(6):
+            run_id = f"chronological-{index}"
+            calibrate.append_event(path, {"event": "forecast", "run_id": run_id, "forecast_at": "2026-01-01T00:00:00Z", "forecast_time_minutes": [10, 20], "forecast_tokens": [100, 200], "task_class": "bug-fix"})
+            calibrate.append_event(path, {"event": "finish", "run_id": run_id, "finished_at": f"2026-01-0{index + 1}T01:00:00Z", "outcome": "completed", "active_elapsed_seconds": 900})
+        result = calibrate.backtest(calibrate.completed_runs(args), "time", "bugfix")
+        self.assertEqual(result["existing"]["sample_count"], 0)
+        self.assertEqual(result["class_correction"]["sample_count"], 0)
+
+    def test_stats_skips_unavailable_git_metrics(self):
+        args = self.state_args("stats-unavailable-git")
+        path = calibrate.history_path(args)
+        calibrate.append_event(path, {"event": "forecast", "run_id": "no-git", "forecast_at": "2026-01-01T00:00:00Z", "forecast_time_minutes": [1, 2], "forecast_tokens": [10, 20], "task_class": "feature"})
+        calibrate.append_event(path, {"event": "finish", "run_id": "no-git", "finished_at": "2026-01-01T00:01:00Z", "outcome": "completed", "active_elapsed_seconds": 60, "actual_files": None, "actual_additions": None, "actual_deletions": None})
+        result = calibrate.command_stats(argparse.Namespace(state_dir=args.state_dir, task_class="feature"))
+        self.assertEqual(result["completed_runs"], 1)
+        self.assertEqual(result["files"]["sample_size"], 0)
+
+    def test_token_backtest_uses_incremental_prediction_units(self):
+        args = self.state_args("token-backtest")
+        path = calibrate.history_path(args)
+        for run_id, forecast_at, finished_at, actual in (
+            ("prior", "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z", 100),
+            ("target", "2026-01-02T00:00:00Z", "2026-01-02T01:00:00Z", 200),
+        ):
+            calibrate.append_event(path, {"event": "forecast", "run_id": run_id, "forecast_at": forecast_at, "forecast_time_minutes": [1, 2], "forecast_tokens": [10100, 10100], "submitted_forecast_tokens": [100, 100], "task_class": "feature"})
+            calibrate.append_event(path, {"event": "finish", "run_id": run_id, "finished_at": finished_at, "outcome": "completed", "active_elapsed_seconds": 60})
+            calibrate.append_event(path, {"event": "reconcile", "run_id": run_id, "measurement_version": 2, "token_metric": "cumulative_counter_delta", "measurement_status": "available", "token_usage": {"total_tokens": actual}})
+        result = calibrate.backtest(calibrate.completed_runs(args), "tokens", "feature")
+        self.assertEqual(result["existing"]["sample_count"], 1)
+        self.assertEqual(result["existing"]["midpoint_error"], 100)
 
 
 if __name__ == "__main__":

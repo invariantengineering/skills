@@ -7,6 +7,32 @@ description: Use when the user explicitly requests a time or token estimate, or 
 
 Treat an estimate as an active control, not a one-time prediction. State the original promise, measure progress, revise elapsed-plus-remaining projections when evidence changes, and stop before silently exceeding the approved envelope.
 
+The estimator records versioned raw and displayed forecasts. Displayed calibration
+is persisted with the metric definitions and available model metadata so a later
+reader can distinguish what was submitted from what was shown.
+
+## Measurement and closure rules
+
+Start a run in the implementation worktree before editing. New reconciliation
+uses the explicit start and finish boundaries, inherited session/turn metadata,
+and a pre-start cumulative baseline to calculate `total_token_usage`
+differences. Cached input,
+uncached input, output, reasoning output, and total tokens remain separate.
+Context size is descriptive only and is never treated as consumed tokens.
+Counter resets, overlapping or unattributable sessions, and missing counters are
+recorded as unavailable; they are not converted to zero.
+
+Legacy records with `last_token_usage` remain readable and retain their original
+definition. They are not silently reinterpreted as counter deltas.
+
+Use `calibrate.py audit` for a read-only dry-run recovery report. It identifies
+unresolved, unreconciled, legacy, and unavailable measurements without deciding
+ambiguous historical outcomes. `finish` supports `completed`, `declined`,
+`superseded`, `blocked`, `unknown`, and `abandoned`; a `task_complete` event by
+itself is not evidence that implementation succeeded. Reconciliation is
+idempotent and runs from forecast/stats/reconcile lifecycle commands where
+appropriate.
+
 ## Scope gate
 
 Continue only when an estimate is itself requested or a material approval
@@ -162,5 +188,13 @@ Omit aggregate tokens when no multi-agent work is planned. Mark telemetry unavai
 - Treat time, root final-context tokens, aggregate agent tokens, file count, and final diff lines as separate signals.
 - Treat zero-file or zero-diff observations as valid only when no repository files intentionally changed. Invalidate accidental zeroes from the wrong checkout.
 - Preserve the original forecast and append checkpoints/reforecasts; never overwrite history.
+- Normalize equivalent task labels before selecting observations. Filter for
+  comparable history before applying the 20-run limit, and filter validity per
+  metric so missing time, token, Git, and diff measurements remain unavailable.
+- Chronological backtests use only observations available before each forecast
+  and report midpoint error, interval coverage, and sample counts. The target
+  is 80% coverage, but actual coverage is reported honestly. Scope changes and
+  environment surprises remain reportable while excluded from unchanged-scope
+  calibration.
 
 Do not repeat unchanged estimates in routine updates. Do not add an estimate to a direct answer, completed result, or status report unless it proposes additional future work.
