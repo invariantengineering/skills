@@ -84,6 +84,10 @@ the current request needs them.
 
 ## Completion gate
 
+Before declaring a thread complete, query every in-scope repository's issue
+tracker for open PRs and issues linked to the task, and explicitly classify
+each as completed, superseded, out of scope, or remaining work.
+
 After changing repository content or Git state:
 
 1. Review the changed paths and diff for scope, sensitive data, and unrelated
