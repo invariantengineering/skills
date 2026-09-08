@@ -9,8 +9,8 @@ description: >
 
 # hitl-pr-review-walkthrough
 
-Create a practical walkthrough that lets a human reviewer validate a pull
-request without relying on memory, chat history, or unstated context.
+Teach a human reviewer how to use the feature being changed and recognize
+whether it works, without relying on memory, chat history, or unstated context.
 
 ## Scope gate
 
@@ -53,10 +53,8 @@ being prepared.
    - `Checkout and setup`: Exact commands and working directory assumptions.
    - `Automated checks`: Commands to run, expected pass criteria, and what a
      failure usually means.
-   - `Manual review path`: Step-by-step actions with exact routes, inputs,
-     fixtures, UI states, API calls, or CLI commands.
-   - `Expected results`: Observable evidence the reviewer should see after
-     each important step.
+   - `Try the feature`: A runnable tutorial following the requirements below,
+     with explanations and observable results alongside each step.
    - `Regression checks`: Focused checks for nearby behavior that could have
      been affected.
    - `Code review focus`: Specific files or concepts worth inspecting closely.
@@ -78,6 +76,38 @@ being prepared.
    - If the user asks for a file, add or update the requested file.
    - If no destination is specified, return the walkthrough in the final
      response and mention any local files inspected.
+
+## Feature tutorial requirements
+
+Write `Try the feature` as a short lesson using the real feature entry point.
+The reviewer must be able to follow it from setup to a useful result.
+
+- For CLI and API features, provide copyable shell commands in fenced blocks.
+  State the working directory, prerequisites, and how to create or obtain the
+  sample inputs. Explain any values the reviewer must supply; never include
+  real secrets or private data.
+- Before each command, explain what it does and why this step matters. Explain
+  the relevant flags and inputs, especially those introduced or changed by
+  the PR. Keep commands in execution order and carry forward any generated
+  identifiers or paths explicitly.
+- After each step, show the expected output or state and how to observe it.
+  Include an inspection command when the result is stored in a file, database,
+  or other service. Label illustrative output so it is not mistaken for an
+  actual execution result.
+- Exercise the happy path and any failure or recovery behavior central to the
+  change. For example, a resume feature needs a supported way to reach an
+  interrupted state, resume it, and verify that the original run is reused.
+- Verify command syntax, flags, and entry points against the implementation,
+  CLI help, or maintained documentation. Do not invent commands to fill gaps.
+  State what was actually run and what remains untested, with the reason.
+  Call out side effects or external prerequisites that affect running a step.
+- For UI-only features, give exact navigation, inputs, actions, and visible
+  results. For changes without a new user entry point, demonstrate the
+  affected existing workflow; explain when no runnable behavior applies.
+- Keep file-reading tasks in `Code review focus` and test-suite commands in
+  `Automated checks`. Neither substitutes for using the feature. Instructions
+  such as "review these files" or "confirm the flag is passed through" do not
+  satisfy the tutorial requirement.
 
 ## Skill or plugin PRs
 
@@ -132,13 +162,33 @@ target agent surface the repository supports.
 
 Expected: <what passing looks like>
 
-### Manual review path
+### Try the feature
 
-1. <specific action>
-   Expected: <observable result>
+#### 1. <use the feature to accomplish a concrete task>
 
-2. <specific action>
-   Expected: <observable result>
+<Explain what this step does, why it matters, and the relevant flags or inputs.>
+
+```sh
+<verified command using the actual feature entry point>
+```
+
+Expected: <observable output or state, and how to inspect it>
+
+#### 2. <continue the workflow or exercise a central failure/recovery case>
+
+<Explain the next action and how to reuse any output, identifier, or path
+from the previous step. Omit this step if no second action is needed.>
+
+```sh
+<verified command with concrete sample inputs>
+```
+
+Expected: <observable result that demonstrates the changed behavior>
+
+Execution evidence: <steps actually run and results; unrun steps and reasons>
+
+<For UI-only features, replace shell blocks with exact navigation and actions.
+If no runnable behavior applies, explain why and give the relevant review steps.>
 
 ### Regression checks
 

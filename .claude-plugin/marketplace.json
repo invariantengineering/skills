@@ -32,7 +32,7 @@
       "name": "hitl-pr-review-walkthrough",
       "source": "./hitl-pr-review-walkthrough",
       "description": "Create a reviewer walkthrough for human-in-the-loop pull request testing and merge decisions.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "dev-tools"
     },
     {
