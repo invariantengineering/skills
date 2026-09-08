@@ -65,6 +65,10 @@ the current request needs them.
 - Validate the smallest relevant surface before handoff.
 - Open pull requests only when requested or already authorized, target the
   default branch, and do not merge or deploy unless the user explicitly asks.
+- When preparing or updating a PR description or reviewer handoff, load
+  `hitl-pr-review-walkthrough`. Include a practical feature tutorial with
+  copyable commands, explanations, and expected results; for UI-only changes,
+  use concrete interaction steps. File inspection is not a feature tutorial.
 
 ## Safety and artifacts
 
