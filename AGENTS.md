@@ -80,8 +80,11 @@ the current request needs them.
   or tool names in branch names, commit messages, pull-request descriptions,
   product documentation, code comments, or shipped copy. Reusable tooling may
   retain names required for its operation.
-- Keep temporary work in an established, ignored repository-local scratch or
-  planning directory. Confirm it does not appear in Git status.
+- Put all temporary work, including virtual environments, test output, and
+  intermediate scripts, in the ignored `.scratch/` directory at the repository
+  root. Never use `/tmp`, `/private/tmp`, `$TMPDIR`, a session scratchpad, or
+  any other location outside the repository, even when the harness provides
+  one. Confirm `.scratch/` does not appear in Git status.
 - Keep committed and published writing neutral and public-safe. Exclude
   credentials, personal data, private project details, machine-specific paths,
   and authorship or generation footers unless the user requires them.
