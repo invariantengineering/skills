@@ -39,6 +39,12 @@ Then install any skill by name:
 
 Repeat the `install` step for each skill you want.
 
+## Machine setup
+
+Claude Code needs two user-level hooks so it reads `AGENTS.md` and keeps
+temporary files in the repository's `.scratch/` directory. See
+[claude-code/README.md](claude-code/README.md).
+
 ## Adding a new skill
 
 Every skill is a plugin. To add one:
